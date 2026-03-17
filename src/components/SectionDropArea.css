@@ -1,0 +1,159 @@
+.section-drop {
+  margin-bottom: 16px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #fafafa;
+  border: 1px dashed transparent;
+}
+
+.section-drop.over {
+  border-color: #999;
+  background: #f0f0f0;
+}
+
+.section-main {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.section-content {
+  flex: 2;
+  min-width: 0;
+}
+
+.section-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.section-label {
+  margin: 0 0 8px 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #555;
+}
+
+.section-label-input {
+  display: block;
+  width: 100%;
+  max-width: 300px;
+  margin: 0;
+  padding: 4px 6px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #555;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+}
+
+.section-delete-btn {
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fff;
+  color: #666;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.section-delete-btn:hover {
+  color: #c00;
+  border-color: #e6b8b8;
+  background: #fff6f6;
+}
+
+.section-label-input:hover {
+  border-color: #ddd;
+  background: #fff;
+}
+
+.section-label-input:focus {
+  outline: none;
+  border-color: #999;
+  background: #fff;
+}
+
+.section-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.section-upload-wrap {
+  flex: 1;
+  min-width: 220px;
+  width: auto;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.section-upload-title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #555;
+  padding: 4px 0;
+  min-height: 28px;
+  box-sizing: border-box;
+}
+
+.section-upload-card {
+  width: 100%;
+  min-height: 80px;
+  padding: 10px;
+  border: 1px dashed #ddd;
+  border-radius: 6px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.upload-placeholder {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #999;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.replacement-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.replacement-img {
+  max-width: 100%;
+  max-height: 64px;
+  object-fit: contain;
+}
+
+.replacement-filename {
+  font-size: 0.7rem;
+  color: #666;
+  word-break: break-all;
+  text-align: center;
+}
+
+.replacement-label {
+  font-size: 0.7rem;
+  color: #999;
+}
+
+.replacement-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}

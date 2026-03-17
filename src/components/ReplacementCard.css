@@ -1,0 +1,84 @@
+.replacement-card {
+  position: relative;
+  width: 72px;
+  padding: 6px;
+  background: #fafafa;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  cursor: grab;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.replacement-card:active {
+  cursor: grabbing;
+}
+
+.replacement-card.dragging {
+  opacity: 0.8;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.replacement-card-thumb {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.replacement-card-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.replacement-card-placeholder {
+  font-size: 0.6rem;
+  color: #999;
+  text-align: center;
+  word-break: break-all;
+}
+
+.replacement-card-name {
+  font-size: 0.65rem;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.replacement-card-size {
+  font-size: 0.6rem;
+  color: #888;
+  margin-top: 2px;
+}
+
+.replacement-card-delete {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.replacement-card-delete:hover {
+  background: #c00;
+}
