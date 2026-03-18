@@ -1,0 +1,34 @@
+{
+  "sections": [
+    {
+      "id": "manual-1773795106275",
+      "format": "manual",
+      "semanticLabel": "测试",
+      "assetIds": []
+    },
+    {
+      "id": "sem-未分类",
+      "format": "",
+      "semanticLabel": "未分类",
+      "assetIds": [
+        "live_test_1773795232479-智能眼镜图片_Svg_replace_config.json",
+        "live_test_1773795232479-智能眼镜图片_xiaodu_ai_glasses_1773623779.png",
+        "live_test_1773795232479-智能眼镜图片_meizu_starv_snap_1773623831.png",
+        "live_test_1773795232479-智能眼镜图片_rayban_meta_gen2_1773623704.png",
+        "live_test_1773795232479-智能眼镜图片_huawei_eyewear2_1773623900.png",
+        "live_test_1773795232479-智能眼镜图片_xiaomi_ai_glasses_1773623680.png",
+        "live_test_1773795232479-智能眼镜图片_leiniao_v3_1773623725.png",
+        "live_test_1773795232479-智能眼镜图片_inmo_go2_1773623859.png",
+        "live_test_1773795232479-智能眼镜图片_rokid_glasses_1773623752.png",
+        "live_test_1773795232479-智能眼镜图片_kuaike_ai_glasses_s1_1773623803.png"
+      ]
+    },
+    {
+      "id": "sem-等级_星星",
+      "format": "",
+      "semanticLabel": "等级/星星",
+      "assetIds": []
+    }
+  ],
+  "replacements": {}
+}
