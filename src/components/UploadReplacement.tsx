@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { Plus } from 'lucide-react'
 import type { ReplacementItem } from '../types'
 import { saveReplacementFile } from '../utils/fsa'
 import './UploadReplacement.css'
@@ -110,12 +111,13 @@ export function UploadReplacement({
       />
       <button
         type="button"
-        className="upload-replacement-btn"
+        className="upload-replacement-box"
         onClick={handleClick}
         disabled={disabled || uploading}
         title="上传替换图到本文件夹下的 Svg_replace（可多选）"
       >
-        {uploading ? '上传中…' : '上传'}
+        <Plus size={24} strokeWidth={2} />
+        <span className="upload-replacement-label">{uploading ? '上传中…' : '上传'}</span>
       </button>
     </>
   )

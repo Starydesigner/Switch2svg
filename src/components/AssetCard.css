@@ -1,8 +1,8 @@
 .asset-card {
   width: 88px;
   padding: 6px;
-  background: #fafafa;
-  border: 1px solid #eee;
+  background: unset;
+  border: none;
   border-radius: 6px;
   cursor: grab;
   display: flex;
@@ -15,8 +15,14 @@
 }
 
 .asset-card.dragging {
-  opacity: 0.6;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  opacity: 0.9;
+  box-shadow: var(--shadow, 0 2px 12px rgba(0, 0, 0, 0.06));
+}
+
+/* 原位占位：拖拽时隐藏，仅显示 DragOverlay 预览 */
+.asset-card.dragging-in-place {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .asset-card-thumb {
@@ -53,12 +59,12 @@
 
 .asset-card-thumb .thumb-placeholder {
   font-size: 0.65rem;
-  color: #999;
+  color: var(--text-muted, #999);
 }
 
 .asset-card-name {
   font-size: 0.7rem;
-  color: #333;
+  color: var(--text, #333);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -67,6 +73,6 @@
 
 .asset-card-size {
   font-size: 0.65rem;
-  color: #888;
+  color: var(--text-muted, #888);
   margin-top: 2px;
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { Folder, FolderOpen, Save, Sparkles, Settings, X } from 'lucide-react'
 import type { FoldersManifest } from './types'
 import {
   buildFormatOnlySections,
@@ -19,6 +20,15 @@ import {
 import './App.css'
 
 const AI_CONFIG_KEY = 'switch2svg-ai-config'
+const THEME_KEY = 'switch2svg-theme'
+
+function loadTheme(): 'light' | 'dark' {
+  try {
+    const t = localStorage.getItem(THEME_KEY)
+    if (t === 'dark' || t === 'light') return t
+  } catch (_) {}
+  return 'light'
+}
 
 /** 阿里千问大模型 API 配置（用于 AI 分析时的语义分组，不填则使用内置规则分组） */
 export interface AIConfig {
@@ -61,6 +71,7 @@ function App() {
   const [addFolderLoading, setAddFolderLoading] = useState(false)
   const [showAIConfig, setShowAIConfig] = useState(false)
   const [aiConfig, setAIConfig] = useState<AIConfig>(loadAIConfig)
+  const [theme, setTheme] = useState<'light' | 'dark'>(loadTheme)
   /** 当前文件夹下各分组的替换图：sectionId -> ReplacementItem[]（可多张） */
   const [replacementsByFolderId, setReplacementsByFolderId] = useState<Record<string, Record<string, import('./types').ReplacementItem[]>>>({})
 
@@ -85,6 +96,13 @@ function App() {
   useEffect(() => {
     fetchManifest()
   }, [])
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    try {
+      localStorage.setItem(THEME_KEY, theme)
+    } catch (_) {}
+  }, [theme])
 
   const allFolders = useMemo(() => {
     const fromManifest = (manifest?.folders ?? []).filter((f) => !removedFolderNames.has(f.name))
@@ -151,6 +169,7 @@ function App() {
     const sourceSections = categoriesByFolderId[currentFolder.id]?.sections ?? displaySections
     const target = sourceSections.find((s) => s.id === sectionId)
     if (!target) return
+    if ((target.semanticLabel || '') === '未分类') return
     if (!confirm(`确定删除分组「${target.semanticLabel || '未分类'}」吗？`)) return
 
     const rest = sourceSections.filter((s) => s.id !== sectionId).map((s) => ({ ...s, assetIds: [...s.assetIds] }))
@@ -330,13 +349,18 @@ function App() {
           <nav className="tabs">
             {allFolders.map((f) => {
               const isLive = f.id.startsWith('live_')
+              const isActive = selectedFolderId === f.id
               return (
-                <span key={f.id} className="tab-wrap">
+                <span
+                  key={f.id}
+                  className={`tab-wrap ${isActive ? 'active' : ''}`}
+                >
                   <button
                     type="button"
-                    className={`tab ${selectedFolderId === f.id ? 'active' : ''}`}
+                    className="tab"
                     onClick={() => setSelectedFolderId(f.id)}
                   >
+                    <Folder size={14} strokeWidth={2} />
                     {f.name}
                   </button>
                   <button
@@ -346,14 +370,33 @@ function App() {
                     title="移除该文件夹"
                     aria-label="移除"
                   >
-                    ×
+                    <X size={12} strokeWidth={2} />
                   </button>
                 </span>
               )
             })}
           </nav>
           <button type="button" className="save-btn secondary" onClick={handleOpenAddFolder} disabled={addFolderLoading}>
+            <FolderOpen size={16} strokeWidth={2} />
             {addFolderLoading ? '读取中…' : '选择文件夹'}
+          </button>
+        </div>
+        <div className="theme-switch" role="group" aria-label="主题">
+          <button
+            type="button"
+            className={`theme-option ${theme === 'light' ? 'active' : ''}`}
+            onClick={() => setTheme('light')}
+            aria-pressed={theme === 'light'}
+          >
+            亮色
+          </button>
+          <button
+            type="button"
+            className={`theme-option ${theme === 'dark' ? 'active' : ''}`}
+            onClick={() => setTheme('dark')}
+            aria-pressed={theme === 'dark'}
+          >
+            暗色
           </button>
         </div>
       </header>
@@ -362,7 +405,7 @@ function App() {
         <div className="modal-overlay" onClick={() => setShowAIConfig(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>阿里千问 API 配置</h3>
-            <p className="modal-hint">用于「AI 分析」时的语义分组。不填写则使用内置规则（按文件名关键词）分组，无需 API。</p>
+            <p className="modal-hint">用于「自动语义分组」时的语义分组。不填写则使用内置规则（按文件名关键词）分组，无需 API。</p>
             <label className="config-row">
               <span className="config-label">API Key</span>
               <input
@@ -388,7 +431,7 @@ function App() {
             </label>
             <div className="modal-actions">
               <button type="button" className="save-btn secondary" onClick={() => setShowAIConfig(false)}>取消</button>
-              <button type="button" className="save-btn" onClick={saveAIConfig}>保存</button>
+              <button type="button" className="save-btn" onClick={saveAIConfig}><Save size={14} strokeWidth={2} /> 保存</button>
             </div>
           </div>
         </div>
@@ -407,12 +450,15 @@ function App() {
                 <h2 className="panel-title">图标资源</h2>
                 <div className="panel-title-actions">
                   <button type="button" className="save-btn secondary small" onClick={handleRunAIAnalysis} title="按规则或千问大模型对资源做语义分组">
-                    AI 分析
+                    <Sparkles size={14} strokeWidth={2} />
+                    自动语义分组
                   </button>
                   <button type="button" className="save-btn secondary small" onClick={() => setShowAIConfig(true)}>
+                    <Settings size={14} strokeWidth={2} />
                     AI 配置
                   </button>
                   <button type="button" className="save-btn small" onClick={handleSave} disabled={!currentFolder}>
+                    <Save size={14} strokeWidth={2} />
                     保存到项目
                   </button>
                 </div>

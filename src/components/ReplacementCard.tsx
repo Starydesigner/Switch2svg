@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { X } from 'lucide-react'
 import { useDraggable } from '@dnd-kit/core'
 import type { ReplacementItem } from '../types'
 import './ReplacementCard.css'
@@ -70,7 +71,7 @@ export function ReplacementCard({ sectionId, item, onDelete }: ReplacementCardPr
         title="删除"
         aria-label="删除"
       >
-        ×
+        <X size={12} strokeWidth={2} />
       </button>
     </div>
   )

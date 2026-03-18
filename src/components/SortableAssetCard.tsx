@@ -22,7 +22,7 @@ export function SortableAssetCard({ asset }: SortableAssetCardProps) {
     <div
       ref={setNodeRef}
       style={style}
-      className={`asset-card ${isDragging ? 'dragging' : ''}`}
+      className={`asset-card ${isDragging ? 'dragging dragging-in-place' : ''}`}
       {...attributes}
       {...listeners}
     >

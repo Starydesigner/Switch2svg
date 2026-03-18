@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Trash2, ArrowBigRightDash } from 'lucide-react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import type { AssetEntry, ReplacementItem } from '../types'
@@ -23,6 +24,8 @@ interface SectionDropAreaProps {
   onSectionDelete?: (sectionId: string) => void
   newSectionIdToFocus?: string | null
   onClearNewSectionIdToFocus?: () => void
+  /** 拖拽排序时放在标题前的把手，仅非「未分类」分组使用 */
+  dragHandle?: React.ReactNode
 }
 
 export function SectionDropArea({
@@ -37,7 +40,9 @@ export function SectionDropArea({
   onSectionDelete,
   newSectionIdToFocus,
   onClearNewSectionIdToFocus,
+  dragHandle,
 }: SectionDropAreaProps) {
+  const isUnclassified = (section.semanticLabel || '') === '未分类'
   const titleInputRef = useRef<HTMLInputElement>(null)
   const [titleValue, setTitleValue] = useState(section.semanticLabel || '未分类')
   const { setNodeRef, isOver } = useDroppable({ id: section.id })
@@ -77,6 +82,7 @@ export function SectionDropArea({
       <div className="section-main">
         <div className="section-content">
           <div className="section-header-row">
+            {dragHandle}
             <input
               ref={titleInputRef}
               type="text"
@@ -91,15 +97,18 @@ export function SectionDropArea({
               }}
               onClick={(e) => e.stopPropagation()}
             />
-            <button
-              type="button"
-              className="section-delete-btn"
-              onClick={() => onSectionDelete?.(section.id)}
-              title="删除分组"
-              aria-label="删除分组"
-            >
-              删除分组
-            </button>
+            {!isUnclassified && (
+              <button
+                type="button"
+                className="section-delete-btn"
+                onClick={() => onSectionDelete?.(section.id)}
+                title="删除分组"
+                aria-label="删除分组"
+              >
+                <Trash2 size={14} strokeWidth={2} />
+                删除分组
+              </button>
+            )}
           </div>
           <SortableContext items={section.assetIds} strategy={verticalListSortingStrategy}>
             <div className="section-cards">
@@ -109,14 +118,17 @@ export function SectionDropArea({
             </div>
           </SortableContext>
         </div>
+        <div className="section-replace-hint" aria-hidden>
+          <ArrowBigRightDash size={20} strokeWidth={2} />
+          <span>替换为</span>
+        </div>
         <div className="section-upload-wrap">
-          <h4 className="section-upload-title">对应替换svg素材</h4>
+          <h4 className="section-upload-title">对应替换 svg 素材</h4>
           <div
             className="section-upload-card"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
           >
-            <p className="upload-placeholder">可上传多张，拖拽可换组</p>
             {folderName && (
               <UploadReplacement
                 folderName={folderName}
@@ -126,7 +138,7 @@ export function SectionDropArea({
                 onUploaded={handleUploaded}
               />
             )}
-            {replacements.length > 0 && (
+            {replacements.length > 0 ? (
               <div className="replacement-list">
                 {replacements.map((item) => (
                   <ReplacementCard
@@ -137,6 +149,8 @@ export function SectionDropArea({
                   />
                 ))}
               </div>
+            ) : (
+              <span className="upload-placeholder">可上传多张，拖拽可换组</span>
             )}
           </div>
         </div>
