@@ -1,12 +1,13 @@
 import type { AnalysisFoldersConfig, AssetEntry, FolderManifest, ReplacementItem } from '../types'
 import type { CategorySection } from './categories'
 
-const FLAT_EXTS = ['.png', '.jpg', '.jpeg', '.webp', '.pdf', '.json']
+const FLAT_EXTS = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.pdf', '.json']
 function inferFormat(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase() ?? ''
   if (ext === 'pdf') return 'pdf'
   if (ext === 'json') return 'lottie'
   if (ext === 'webp') return 'webp'
+  if (ext === 'gif') return 'gif'
   if (ext === 'jpg' || ext === 'jpeg') return 'jpg'
   return ext || 'png'
 }
@@ -220,7 +221,7 @@ export async function readFolderContentFromHandle(
           let displayUrl: string | undefined
           try {
             const file = await (handle as FileSystemFileHandle).getFile()
-            if (['.png', '.jpg', '.jpeg', '.webp'].includes(ext)) {
+            if (['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(ext)) {
               displayUrl = URL.createObjectURL(file)
             }
           } catch (_) {}

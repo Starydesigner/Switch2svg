@@ -81,16 +81,16 @@
 .section-delete-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
   margin-left: auto;
-  padding: 5px 8px;
-  font-size: 12px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   border: 1px solid var(--border, #e5e7eb);
   border-radius: var(--radius-sm, 4px);
   background: var(--bg-surface, #fff);
   color: var(--text-secondary, #6b7280);
   cursor: pointer;
-  white-space: nowrap;
   font-family: inherit;
 }
 

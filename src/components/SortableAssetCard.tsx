@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Check, GripVertical } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { AssetEntry } from '../types'
@@ -7,9 +8,11 @@ import './AssetCard.css'
 
 interface SortableAssetCardProps {
   asset: AssetEntry
+  isSelected?: boolean
+  onSelect?: (assetId: string) => void
 }
 
-export function SortableAssetCard({ asset }: SortableAssetCardProps) {
+export function SortableAssetCard({ asset, isSelected, onSelect }: SortableAssetCardProps) {
   const [size, setSize] = useState<{ w: number; h: number } | null>(null)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: asset.id,
@@ -18,14 +21,60 @@ export function SortableAssetCard({ asset }: SortableAssetCardProps) {
     transform: CSS.Transform.toString(transform),
     transition,
   }
+
+  const handleCheckClick = (e: React.MouseEvent) => {
+    if (!onSelect) return
+    e.preventDefault()
+    e.stopPropagation()
+    onSelect(asset.id)
+  }
+
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (!onSelect) return
+    if ((e.target as HTMLElement).closest('.asset-card-drag-handle')) return
+    onSelect(asset.id)
+  }
+
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`asset-card ${isDragging ? 'dragging dragging-in-place' : ''}`}
-      {...attributes}
-      {...listeners}
+      className={`asset-card ${isDragging ? 'dragging dragging-in-place' : ''} ${isSelected ? 'selected' : ''}`}
+      onClick={handleCardClick}
+      role={onSelect ? 'button' : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      aria-label={onSelect ? (isSelected ? '取消选中' : '选中') : undefined}
+      onKeyDown={onSelect ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(asset.id); } } : undefined}
     >
+      {listeners && typeof listeners === 'object' && (
+        <span
+          className="asset-card-drag-handle"
+          title="按住拖动"
+          aria-label="拖动"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical size={12} strokeWidth={2} />
+        </span>
+      )}
+      {onSelect && (
+        <span
+          className="asset-card-select-check"
+          role="button"
+          tabIndex={0}
+          aria-label={isSelected ? '取消选中' : '选中'}
+          title={isSelected ? '取消选中' : '点击选中（可多选）'}
+          onClick={handleCheckClick}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              onSelect(asset.id)
+            }
+          }}
+        >
+          {isSelected ? <Check size={10} strokeWidth={3} color="white" /> : null}
+        </span>
+      )}
       <div className="asset-card-thumb">
         {asset.format === 'lottie' ? (
           <span className="thumb-placeholder">Lottie</span>

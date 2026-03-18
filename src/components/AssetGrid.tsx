@@ -1,9 +1,7 @@
-import { Plus, GripVertical } from 'lucide-react'
-import { Fragment, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   DndContext,
   DragEndEvent,
-  DragOverEvent,
   DragOverlay,
   DragStartEvent,
   KeyboardSensor,
@@ -11,8 +9,7 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core'
-import { arrayMove, sortableKeyboardCoordinates, useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
+import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import type { AssetEntry, ReplacementItem } from '../types'
 import type { CategorySection } from '../utils/categories'
 import { getAssetImageUrl } from '../utils/assetUrl'
@@ -27,8 +24,8 @@ function isUnclassified(section: CategorySection) {
   return (section.semanticLabel || '') === UNCLASSIFIED_LABEL
 }
 
-/** 可拖拽排序的分组包装：仅对非「未分类」分组生效 */
-function SortableSection({
+/** 分组卡片包装（顺序由左侧大纲拖拽控制，此处不再支持拖拽排序） */
+function SectionCard({
   section,
   sections,
   assetsById,
@@ -42,6 +39,8 @@ function SortableSection({
   onSectionDelete,
   newSectionIdToFocus,
   onClearNewSectionIdToFocus,
+  selectedAssetIds,
+  onAssetSelect,
 }: {
   section: CategorySection
   sections: CategorySection[]
@@ -56,43 +55,28 @@ function SortableSection({
   onSectionDelete?: (sectionId: string) => void
   newSectionIdToFocus?: string | null
   onClearNewSectionIdToFocus?: () => void
+  selectedAssetIds?: ReadonlySet<string>
+  onAssetSelect?: (assetId: string) => void
 }) {
-  const { setNodeRef, transform, transition, listeners, attributes } = useSortable({
-    id: section.id,
-    data: { type: 'section' as const },
-  })
-  const style = { transform: CSS.Transform.toString(transform), transition }
-  const dragHandle = (
-    <span
-      className="section-drag-handle"
-      {...listeners}
-      {...attributes}
-      title="拖动排序分组"
-      aria-label="拖动排序"
-    >
-      <GripVertical size={16} strokeWidth={2} />
-    </span>
-  )
   return (
-    <div ref={setNodeRef} style={style}>
-      <SectionDropArea
-        section={section}
-        assetsById={assetsById}
-        getAssetImageUrl={getAssetImageUrl}
-        onSectionsChange={onSectionsChange}
-        sections={sections}
-        folderName={folderName}
-        folderHandle={folderHandle}
-        replacements={replacements}
-        onReplacementUploaded={onReplacementUploaded}
-        onReplacementDelete={onReplacementDelete}
-        onSectionRename={onSectionRename}
-        onSectionDelete={onSectionDelete}
-        newSectionIdToFocus={newSectionIdToFocus}
-        onClearNewSectionIdToFocus={onClearNewSectionIdToFocus}
-        dragHandle={dragHandle}
-      />
-    </div>
+    <SectionDropArea
+      section={section}
+      assetsById={assetsById}
+      getAssetImageUrl={getAssetImageUrl}
+      onSectionsChange={onSectionsChange}
+      sections={sections}
+      folderName={folderName}
+      folderHandle={folderHandle}
+      replacements={replacements}
+      onReplacementUploaded={onReplacementUploaded}
+      onReplacementDelete={onReplacementDelete}
+      onSectionRename={onSectionRename}
+      onSectionDelete={onSectionDelete}
+      newSectionIdToFocus={newSectionIdToFocus}
+      onClearNewSectionIdToFocus={onClearNewSectionIdToFocus}
+      selectedAssetIds={selectedAssetIds}
+      onAssetSelect={onAssetSelect}
+    />
   )
 }
 
@@ -111,6 +95,34 @@ interface AssetGridProps {
   onSectionDelete?: (sectionId: string) => void
   newSectionIdToFocus?: string | null
   onClearNewSectionIdToFocus?: () => void
+  /** 受控选中（与吸顶栏「移动分组」联动） */
+  selectedAssetIds?: ReadonlySet<string>
+  onSelectionChange?: (set: Set<string>) => void
+  onMoveSelectedToSection?: (sectionId: string) => void
+}
+
+export function moveAssetsToSection(
+  sections: CategorySection[],
+  assetIds: string[],
+  toSectionId: string,
+  onSectionsChange: (next: CategorySection[]) => void
+) {
+  if (assetIds.length === 0) return
+  const next = sections.map((s) => ({ ...s, assetIds: [...s.assetIds] }))
+  const toSection = next.find((s) => s.id === toSectionId)
+  if (!toSection) return
+  const idSet = new Set(assetIds)
+  for (const section of next) {
+    section.assetIds = section.assetIds.filter((id) => !idSet.has(id))
+  }
+  const existingInTo = new Set(toSection.assetIds)
+  for (const id of assetIds) {
+    if (!existingInTo.has(id)) {
+      toSection.assetIds.push(id)
+      existingInTo.add(id)
+    }
+  }
+  onSectionsChange(next)
 }
 
 export function AssetGrid({
@@ -123,11 +135,14 @@ export function AssetGrid({
   onReplacementUploaded,
   onReplacementDelete,
   onReplacementMove,
-  onAddManualGroup,
+  onAddManualGroup: _onAddManualGroup,
   onSectionRename,
   onSectionDelete,
   newSectionIdToFocus,
   onClearNewSectionIdToFocus,
+  selectedAssetIds: controlledSelectedIds,
+  onSelectionChange,
+  onMoveSelectedToSection,
 }: AssetGridProps) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -136,8 +151,63 @@ export function AssetGrid({
 
   const assetsById = new Map(assets.map((a) => [a.id, a]))
   const [activeAssetId, setActiveAssetId] = useState<string | null>(null)
-  /** 分组拖拽时，即将插入的位置（在 sortable 列表中的索引，线显示在该索引之前） */
-  const [sectionInsertBeforeIndex, setSectionInsertBeforeIndex] = useState<number | null>(null)
+  const [internalSelectedIds, setInternalSelectedIds] = useState<Set<string>>(new Set())
+  const selectedAssetIds = controlledSelectedIds ?? internalSelectedIds
+  const setSelectedAssetIds = useCallback(
+    (next: Set<string>) => {
+      if (onSelectionChange) onSelectionChange(next)
+      else setInternalSelectedIds(next)
+    },
+    [onSelectionChange]
+  )
+  const selectedAssetIdsRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    selectedAssetIdsRef.current = new Set(selectedAssetIds)
+  }, [selectedAssetIds])
+  /** 右键菜单：有选中素材时显示 */
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+  const contextMenuRef = useRef<HTMLDivElement>(null)
+
+  const handleAssetSelect = useCallback(
+    (assetId: string) => {
+      const next = new Set(selectedAssetIds)
+      if (next.has(assetId)) next.delete(assetId)
+      else next.add(assetId)
+      setSelectedAssetIds(next)
+    },
+    [selectedAssetIds, setSelectedAssetIds]
+  )
+
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      if (selectedAssetIds.size === 0) return
+      e.preventDefault()
+      setContextMenu({ x: e.clientX, y: e.clientY })
+    },
+    [selectedAssetIds.size]
+  )
+
+  const handleCopySelectedNames = useCallback(() => {
+    const lines = Array.from(selectedAssetIds)
+      .map((id) => {
+        const a = assetsById.get(id)
+        if (!a?.name) return ''
+        return a.format ? `${a.name}.${a.format}` : a.name
+      })
+      .filter(Boolean)
+    if (lines.length) navigator.clipboard.writeText(lines.join('\n'))
+    setContextMenu(null)
+  }, [selectedAssetIds, assetsById])
+
+  useEffect(() => {
+    if (!contextMenu) return
+    const close = (e: MouseEvent) => {
+      if (contextMenuRef.current?.contains(e.target as Node)) return
+      setContextMenu(null)
+    }
+    document.addEventListener('mousedown', close, true)
+    return () => document.removeEventListener('mousedown', close, true)
+  }, [contextMenu])
 
   /** 展示顺序：未分类始终在最后 */
   const displayOrder = useMemo(
@@ -174,44 +244,12 @@ export function AssetGrid({
     onSectionsChange(next)
   }
 
-  const sortableSectionIds = useMemo(
-    () => displayOrder.filter((s) => !isUnclassified(s)).map((s) => s.id),
-    [displayOrder]
-  )
-
-  function handleDragOver(e: DragOverEvent) {
-    const { active, over } = e
-    if (active.data.current?.type !== 'section') return
-    if (!over || typeof over.id !== 'string') {
-      setSectionInsertBeforeIndex(null)
-      return
-    }
-    const idx = sortableSectionIds.indexOf(over.id)
-    setSectionInsertBeforeIndex(idx >= 0 ? idx : null)
-  }
-
   function handleDragEnd(e: DragEndEvent) {
     setActiveAssetId(null)
-    setSectionInsertBeforeIndex(null)
     const { active, over } = e
     if (!over) return
     const activeId = active.id as string
     const overId = over.id as string
-
-    if (active.data.current?.type === 'section') {
-      const sortableIds = displayOrder.filter((s) => !isUnclassified(s)).map((s) => s.id)
-      const oldIndex = sortableIds.indexOf(activeId)
-      const newIndex = sortableIds.indexOf(overId)
-      if (oldIndex === -1 || newIndex === -1) return
-      const newOrder = arrayMove(sortableIds, oldIndex, newIndex)
-      const unclassified = displayOrder.filter((s) => isUnclassified(s))
-      const newSections = newOrder
-        .map((id) => sections.find((s) => s.id === id))
-        .filter((s): s is CategorySection => s != null)
-        .concat(unclassified)
-      onSectionsChange(newSections)
-      return
-    }
 
     const rep = active.data.current?.type === 'replacement' ? parseReplacementDragId(activeId) : null
     if (rep && onReplacementMove) {
@@ -224,65 +262,80 @@ export function AssetGrid({
 
     const section = sections.find((s) => s.id === overId)
     if (section) {
-      const fromSection = sections.find((s) => s.assetIds.includes(activeId))
-      if (fromSection) moveAsset(activeId, fromSection.id, overId)
+      const currentSelection = selectedAssetIdsRef.current
+      const idsToMove =
+        currentSelection.has(activeId) && currentSelection.size > 1
+          ? Array.from(currentSelection)
+          : [activeId]
+      moveAssetsToSection(sections, idsToMove, overId, onSectionsChange)
+      if (idsToMove.length > 1) setSelectedAssetIds(new Set())
       return
     }
     const overSection = sections.find((s) => s.assetIds.includes(overId))
     const fromSection = sections.find((s) => s.assetIds.includes(activeId))
     if (overSection && fromSection) {
+      const currentSelection = selectedAssetIdsRef.current
+      const idsToMove =
+        currentSelection.has(activeId) && currentSelection.size > 1
+          ? Array.from(currentSelection)
+          : [activeId]
       const toIndex = overSection.assetIds.indexOf(overId) + 1
-      moveAsset(activeId, fromSection.id, overSection.id, toIndex)
+      if (idsToMove.length === 1) {
+        moveAsset(activeId, fromSection.id, overSection.id, toIndex)
+      } else {
+        moveAssetsToSection(sections, idsToMove, overSection.id, onSectionsChange)
+        setSelectedAssetIds(new Set())
+      }
     }
   }
 
   const sortableSections = displayOrder.filter((s) => !isUnclassified(s))
   const unclassifiedSections = displayOrder.filter((s) => isUnclassified(s))
 
+  const handleMoveToSection = useCallback(
+    (toSectionId: string) => {
+      if (onMoveSelectedToSection) {
+        onMoveSelectedToSection(toSectionId)
+        setContextMenu(null)
+        return
+      }
+      const ids = Array.from(selectedAssetIdsRef.current)
+      if (ids.length === 0) return
+      moveAssetsToSection(sections, ids, toSectionId, onSectionsChange)
+      setSelectedAssetIds(new Set())
+      setContextMenu(null)
+    },
+    [sections, onSectionsChange, onMoveSelectedToSection, setSelectedAssetIds]
+  )
+
   return (
-    <DndContext
-      sensors={sensors}
-      onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
-      onDragEnd={handleDragEnd}
-      onDragCancel={() => setSectionInsertBeforeIndex(null)}
-    >
-      <div className="asset-grid">
-        {onAddManualGroup && (
-          <button
-            type="button"
-            className="add-group-card"
-            onClick={onAddManualGroup}
-          >
-            <Plus size={16} strokeWidth={2} />
-            新建分组
-          </button>
-        )}
-        {sortableSections.map((section, index) => (
-          <Fragment key={section.id}>
-            {sectionInsertBeforeIndex === index && (
-              <div className="section-drop-indicator" aria-hidden />
-            )}
-            <SortableSection
-              section={section}
-              sections={sections}
-              assetsById={assetsById}
-              folderName={folderName}
-              folderHandle={folderHandle}
-              replacements={replacements[section.id]}
-              onSectionsChange={onSectionsChange}
-              onReplacementUploaded={onReplacementUploaded}
-              onReplacementDelete={onReplacementDelete}
-              onSectionRename={onSectionRename}
-              onSectionDelete={onSectionDelete}
-              newSectionIdToFocus={newSectionIdToFocus}
-              onClearNewSectionIdToFocus={onClearNewSectionIdToFocus}
-            />
-          </Fragment>
+    <div className="asset-grid-root">
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="asset-grid" onContextMenu={handleContextMenu}>
+        {sortableSections.map((section) => (
+          <SectionCard
+            key={section.id}
+            section={section}
+            sections={sections}
+            assetsById={assetsById}
+            folderName={folderName}
+            folderHandle={folderHandle}
+            replacements={replacements[section.id]}
+            onSectionsChange={onSectionsChange}
+            onReplacementUploaded={onReplacementUploaded}
+            onReplacementDelete={onReplacementDelete}
+            onSectionRename={onSectionRename}
+            onSectionDelete={onSectionDelete}
+            newSectionIdToFocus={newSectionIdToFocus}
+            onClearNewSectionIdToFocus={onClearNewSectionIdToFocus}
+            selectedAssetIds={selectedAssetIds}
+            onAssetSelect={handleAssetSelect}
+          />
         ))}
-        {sectionInsertBeforeIndex === sortableSections.length && sortableSections.length > 0 && (
-          <div key="drop-line-end" className="section-drop-indicator" aria-hidden />
-        )}
         {unclassifiedSections.map((section) => (
           <SectionDropArea
             key={section.id}
@@ -300,9 +353,36 @@ export function AssetGrid({
             onSectionDelete={onSectionDelete}
             newSectionIdToFocus={newSectionIdToFocus}
             onClearNewSectionIdToFocus={onClearNewSectionIdToFocus}
+            selectedAssetIds={selectedAssetIds}
+            onAssetSelect={handleAssetSelect}
           />
         ))}
       </div>
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="asset-context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          role="menu"
+        >
+          <button type="button" className="asset-context-menu-item" role="menuitem" onClick={handleCopySelectedNames}>
+            复制选中素材名称
+          </button>
+          <div className="asset-context-menu-divider" aria-hidden />
+          <div className="asset-context-menu-label">移动分组</div>
+          {displayOrder.map((section) => (
+            <button
+              key={section.id}
+              type="button"
+              className="asset-context-menu-item"
+              role="menuitem"
+              onClick={() => handleMoveToSection(section.id)}
+            >
+              {section.semanticLabel || '未命名'}
+            </button>
+          ))}
+        </div>
+      )}
       <DragOverlay dropAnimation={null}>
         {activeAssetId ? (
           (() => {
@@ -311,6 +391,7 @@ export function AssetGrid({
           })()
         ) : null}
       </DragOverlay>
-    </DndContext>
+      </DndContext>
+    </div>
   )
 }

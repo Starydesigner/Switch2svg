@@ -26,6 +26,10 @@ interface SectionDropAreaProps {
   onClearNewSectionIdToFocus?: () => void
   /** 拖拽排序时放在标题前的把手，仅非「未分类」分组使用 */
   dragHandle?: React.ReactNode
+  /** 选中的素材 id 集合（用于多选与批量移动） */
+  selectedAssetIds?: ReadonlySet<string>
+  /** 点击素材卡片时切换/设置选中 */
+  onAssetSelect?: (assetId: string) => void
 }
 
 export function SectionDropArea({
@@ -41,6 +45,8 @@ export function SectionDropArea({
   newSectionIdToFocus,
   onClearNewSectionIdToFocus,
   dragHandle,
+  selectedAssetIds,
+  onAssetSelect,
 }: SectionDropAreaProps) {
   const isUnclassified = (section.semanticLabel || '') === '未分类'
   const titleInputRef = useRef<HTMLInputElement>(null)
@@ -76,6 +82,7 @@ export function SectionDropArea({
 
   return (
     <div
+      id={`section-${section.id}`}
       ref={setNodeRef}
       className={`section-drop ${isOver ? 'over' : ''}`}
     >
@@ -106,14 +113,18 @@ export function SectionDropArea({
                 aria-label="删除分组"
               >
                 <Trash2 size={14} strokeWidth={2} />
-                删除分组
               </button>
             )}
           </div>
           <SortableContext items={section.assetIds} strategy={verticalListSortingStrategy}>
             <div className="section-cards">
               {assets.map((asset) => (
-                <SortableAssetCard key={asset.id} asset={asset} />
+                <SortableAssetCard
+                  key={asset.id}
+                  asset={asset}
+                  isSelected={selectedAssetIds?.has(asset.id)}
+                  onSelect={onAssetSelect}
+                />
               ))}
             </div>
           </SortableContext>

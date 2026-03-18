@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
-import { Folder, FolderOpen, Save, Sparkles, Settings, X } from 'lucide-react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { Folder, FolderOpen, Save, Sparkles, Settings, X, Plus, ChevronDown } from 'lucide-react'
 import type { FoldersManifest } from './types'
 import {
   buildFormatOnlySections,
@@ -8,7 +8,8 @@ import {
   type CategorySection,
   type FolderCategoryConfig,
 } from './utils/categories'
-import { AssetGrid } from './components/AssetGrid'
+import { AssetGrid, moveAssetsToSection } from './components/AssetGrid'
+import { SectionOutline } from './components/SectionOutline'
 import {
   pickAnalysisFolderDirect,
   readFolderContentFromHandle,
@@ -131,10 +132,34 @@ function App() {
   /** 智能分组：已配置千问 API 时可用大模型语义分组，否则使用内置规则（按文件名关键词）分组 */
   const handleRunAIAnalysis = () => {
     if (!currentFolder) return
+    if (!confirm('将依据元素命名自动归类分组，当前已创建分组会消失，请谨慎操作')) return
     setFolderConfig({ mode: 'auto', sections: buildDefaultSections(assets) })
   }
 
   const [newSectionIdToFocus, setNewSectionIdToFocus] = useState<string | null>(null)
+  /** 左侧面板选中的素材 id（与 AssetGrid 吸顶栏「移动分组」联动） */
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set())
+  const [showMoveToSectionDropdown, setShowMoveToSectionDropdown] = useState(false)
+
+  /** 展示顺序：未分类始终在最后 */
+  const displayOrderSections = useMemo(
+    () => [
+      ...displaySections.filter((s) => (s.semanticLabel || '') !== '未分类'),
+      ...displaySections.filter((s) => (s.semanticLabel || '') === '未分类'),
+    ],
+    [displaySections]
+  )
+
+  const moveSelectedToSection = useCallback(
+    (toSectionId: string) => {
+      const ids = Array.from(selectedAssetIds)
+      if (ids.length === 0) return
+      moveAssetsToSection(displaySections, ids, toSectionId, handleSectionsChange)
+      setSelectedAssetIds(new Set())
+      setShowMoveToSectionDropdown(false)
+    },
+    [selectedAssetIds, displaySections]
+  )
 
   const handleAddManualGroup = () => {
     if (!currentFolder) return
@@ -163,6 +188,20 @@ function App() {
     if (!currentFolder) return
     setFolderConfig({ mode: folderConfig?.mode ?? 'manual', sections: next })
   }
+
+  /** 左侧大纲拖拽排序后，直接更新分组顺序并保持未分类在最后 */
+  const handleOutlineReorder = useCallback(
+    (newOrder: CategorySection[]) => {
+      if (!currentFolder) return
+      setFolderConfig({ mode: folderConfig?.mode ?? 'manual', sections: newOrder })
+    },
+    [currentFolder, folderConfig?.mode]
+  )
+
+  /** 点击左侧大纲分组项，滚动到对应分组卡片 */
+  const handleOutlineSectionClick = useCallback((sectionId: string) => {
+    document.getElementById(`section-${sectionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [])
 
   const handleSectionDelete = (sectionId: string) => {
     if (!currentFolder) return
@@ -205,7 +244,7 @@ function App() {
     })
     const folderHandle = liveFolderHandlesRef.current[currentFolder.id]
     saveFolderConfigToSvgReplace(currentFolder.name, { sections, replacements: replacementsMap }, folderHandle)
-      .then(() => alert('已保存到 ' + currentFolder.name + '/Svg_replace/config.json'))
+      .then(() => alert('已保存配置到分析文件夹下 Svg_replace 文件夹中。下次打开分析文件夹将自动读取配置。'))
       .catch((err) => alert('保存失败: ' + (err?.message || err)))
   }
 
@@ -446,24 +485,38 @@ function App() {
         {!loading && !error && currentFolder && (
           <div className="content">
             <section className="left-panel">
-              <div className="panel-title-row">
-                <h2 className="panel-title">图标资源</h2>
-                <div className="panel-title-actions">
-                  <button type="button" className="save-btn secondary small" onClick={handleRunAIAnalysis} title="按规则或千问大模型对资源做语义分组">
-                    <Sparkles size={14} strokeWidth={2} />
-                    自动语义分组
-                  </button>
-                  <button type="button" className="save-btn secondary small" onClick={() => setShowAIConfig(true)}>
-                    <Settings size={14} strokeWidth={2} />
-                    AI 配置
-                  </button>
-                  <button type="button" className="save-btn small" onClick={handleSave} disabled={!currentFolder}>
-                    <Save size={14} strokeWidth={2} />
-                    保存到项目
-                  </button>
+              <div className="left-panel-sticky-bar">
+                <div className="left-panel-sticky-actions">
+                  <div className="left-panel-sticky-left">
+                    <button type="button" className="save-btn secondary small" onClick={handleAddManualGroup}>
+                      <Plus size={14} strokeWidth={2} />
+                      新建分组
+                    </button>
+                    <button type="button" className="save-btn secondary small" onClick={handleRunAIAnalysis} title="按规则或千问大模型对资源做语义分组">
+                      <Sparkles size={14} strokeWidth={2} />
+                      自动语义分组
+                    </button>
+                    <button type="button" className="save-btn secondary small" onClick={() => setShowAIConfig(true)}>
+                      <Settings size={14} strokeWidth={2} />
+                      AI 配置
+                    </button>
+                  </div>
+                  <div className="left-panel-sticky-right">
+                    <button type="button" className="save-btn small" onClick={handleSave} disabled={!currentFolder}>
+                      <Save size={14} strokeWidth={2} />
+                      保存到项目
+                    </button>
+                  </div>
                 </div>
               </div>
-              <AssetGrid
+              <div className="left-panel-body">
+                <SectionOutline
+                  sections={displayOrderSections}
+                  onReorder={handleOutlineReorder}
+                  onSectionClick={handleOutlineSectionClick}
+                />
+                <div className="left-panel-main">
+                  <AssetGrid
                 assets={assets}
                 sections={displaySections}
                 onSectionsChange={handleSectionsChange}
@@ -478,7 +531,58 @@ function App() {
                 onSectionDelete={handleSectionDelete}
                 newSectionIdToFocus={newSectionIdToFocus}
                 onClearNewSectionIdToFocus={() => setNewSectionIdToFocus(null)}
-              />
+                selectedAssetIds={selectedAssetIds}
+                onSelectionChange={setSelectedAssetIds}
+                onMoveSelectedToSection={moveSelectedToSection}
+                  />
+                </div>
+              </div>
+              {selectedAssetIds.size > 0 && (
+                <div className="selection-capsule">
+                  <span className="selection-capsule-count">已选 {selectedAssetIds.size} 项</span>
+                  <div className="selection-capsule-move-wrap">
+                    <button
+                      type="button"
+                      className="selection-capsule-btn"
+                      onClick={() => setShowMoveToSectionDropdown((v) => !v)}
+                      aria-expanded={showMoveToSectionDropdown}
+                      aria-haspopup="true"
+                    >
+                      移动分组
+                      <ChevronDown size={14} strokeWidth={2} />
+                    </button>
+                    {showMoveToSectionDropdown && (
+                      <>
+                        <div
+                          className="move-to-section-backdrop"
+                          aria-hidden
+                          onClick={() => setShowMoveToSectionDropdown(false)}
+                        />
+                        <div className="move-to-section-dropdown selection-capsule-dropdown" role="listbox">
+                          {displayOrderSections.map((section) => (
+                            <button
+                              key={section.id}
+                              type="button"
+                              className="move-to-section-option"
+                              role="option"
+                              onClick={() => moveSelectedToSection(section.id)}
+                            >
+                              {section.semanticLabel || '未命名'}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className="selection-capsule-btn"
+                    onClick={() => setSelectedAssetIds(new Set())}
+                  >
+                    取消选择
+                  </button>
+                </div>
+              )}
             </section>
           </div>
         )}
