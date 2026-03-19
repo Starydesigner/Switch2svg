@@ -10,9 +10,11 @@ interface SortableAssetCardProps {
   asset: AssetEntry
   isSelected?: boolean
   onSelect?: (assetId: string) => void
+  /** 双击或空格时全屏放大预览 */
+  onPreview?: (asset: AssetEntry) => void
 }
 
-export function SortableAssetCard({ asset, isSelected, onSelect }: SortableAssetCardProps) {
+export function SortableAssetCard({ asset, isSelected, onSelect, onPreview }: SortableAssetCardProps) {
   const [size, setSize] = useState<{ w: number; h: number } | null>(null)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: asset.id,
@@ -35,16 +37,33 @@ export function SortableAssetCard({ asset, isSelected, onSelect }: SortableAsset
     onSelect(asset.id)
   }
 
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('.asset-card-drag-handle')) return
+    onPreview?.(asset)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === ' ') {
+      e.preventDefault()
+      if (onPreview) onPreview(asset)
+      else if (onSelect) onSelect(asset.id)
+    } else if (e.key === 'Enter' && onSelect) {
+      e.preventDefault()
+      onSelect(asset.id)
+    }
+  }
+
   return (
     <div
       ref={setNodeRef}
       style={style}
       className={`asset-card ${isDragging ? 'dragging dragging-in-place' : ''} ${isSelected ? 'selected' : ''}`}
       onClick={handleCardClick}
-      role={onSelect ? 'button' : undefined}
-      tabIndex={onSelect ? 0 : undefined}
+      onDoubleClick={handleDoubleClick}
+      role={onSelect || onPreview ? 'button' : undefined}
+      tabIndex={onSelect || onPreview ? 0 : undefined}
       aria-label={onSelect ? (isSelected ? '取消选中' : '选中') : undefined}
-      onKeyDown={onSelect ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(asset.id); } } : undefined}
+      onKeyDown={(onSelect || onPreview) ? handleKeyDown : undefined}
     >
       {listeners && typeof listeners === 'object' && (
         <span

@@ -41,6 +41,8 @@ function SectionCard({
   onClearNewSectionIdToFocus,
   selectedAssetIds,
   onAssetSelect,
+  onSectionReplaceModeChange,
+  onAssetPreview,
 }: {
   section: CategorySection
   sections: CategorySection[]
@@ -57,6 +59,8 @@ function SectionCard({
   onClearNewSectionIdToFocus?: () => void
   selectedAssetIds?: ReadonlySet<string>
   onAssetSelect?: (assetId: string) => void
+  onSectionReplaceModeChange?: (sectionId: string, mode: import('../utils/categories').SectionReplaceMode) => void
+  onAssetPreview?: (asset: AssetEntry) => void
 }) {
   return (
     <SectionDropArea
@@ -76,6 +80,8 @@ function SectionCard({
       onClearNewSectionIdToFocus={onClearNewSectionIdToFocus}
       selectedAssetIds={selectedAssetIds}
       onAssetSelect={onAssetSelect}
+      onSectionReplaceModeChange={onSectionReplaceModeChange}
+      onAssetPreview={onAssetPreview}
     />
   )
 }
@@ -99,6 +105,7 @@ interface AssetGridProps {
   selectedAssetIds?: ReadonlySet<string>
   onSelectionChange?: (set: Set<string>) => void
   onMoveSelectedToSection?: (sectionId: string) => void
+  onSectionReplaceModeChange?: (sectionId: string, mode: import('../utils/categories').SectionReplaceMode) => void
 }
 
 export function moveAssetsToSection(
@@ -143,7 +150,9 @@ export function AssetGrid({
   selectedAssetIds: controlledSelectedIds,
   onSelectionChange,
   onMoveSelectedToSection,
+  onSectionReplaceModeChange,
 }: AssetGridProps) {
+  const [previewAssetId, setPreviewAssetId] = useState<string | null>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
@@ -292,6 +301,18 @@ export function AssetGrid({
   const sortableSections = displayOrder.filter((s) => !isUnclassified(s))
   const unclassifiedSections = displayOrder.filter((s) => isUnclassified(s))
 
+  useEffect(() => {
+    if (!previewAssetId) return
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === ' ' || e.key === 'Escape') {
+        e.preventDefault()
+        setPreviewAssetId(null)
+      }
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [previewAssetId])
+
   const handleMoveToSection = useCallback(
     (toSectionId: string) => {
       if (onMoveSelectedToSection) {
@@ -316,48 +337,52 @@ export function AssetGrid({
         onDragEnd={handleDragEnd}
       >
         <div className="asset-grid" onContextMenu={handleContextMenu}>
-        {sortableSections.map((section) => (
-          <SectionCard
-            key={section.id}
-            section={section}
-            sections={sections}
-            assetsById={assetsById}
-            folderName={folderName}
-            folderHandle={folderHandle}
-            replacements={replacements[section.id]}
-            onSectionsChange={onSectionsChange}
-            onReplacementUploaded={onReplacementUploaded}
-            onReplacementDelete={onReplacementDelete}
-            onSectionRename={onSectionRename}
-            onSectionDelete={onSectionDelete}
-            newSectionIdToFocus={newSectionIdToFocus}
-            onClearNewSectionIdToFocus={onClearNewSectionIdToFocus}
-            selectedAssetIds={selectedAssetIds}
-            onAssetSelect={handleAssetSelect}
-          />
-        ))}
-        {unclassifiedSections.map((section) => (
-          <SectionDropArea
-            key={section.id}
-            section={section}
-            assetsById={assetsById}
-            getAssetImageUrl={getAssetImageUrl}
-            onSectionsChange={onSectionsChange}
-            sections={sections}
-            folderName={folderName}
-            folderHandle={folderHandle}
-            replacements={replacements[section.id]}
-            onReplacementUploaded={onReplacementUploaded}
-            onReplacementDelete={onReplacementDelete}
-            onSectionRename={onSectionRename}
-            onSectionDelete={onSectionDelete}
-            newSectionIdToFocus={newSectionIdToFocus}
-            onClearNewSectionIdToFocus={onClearNewSectionIdToFocus}
-            selectedAssetIds={selectedAssetIds}
-            onAssetSelect={handleAssetSelect}
-          />
-        ))}
-      </div>
+          {sortableSections.map((section) => (
+            <SectionCard
+              key={section.id}
+              section={section}
+              sections={sections}
+              assetsById={assetsById}
+              folderName={folderName}
+              folderHandle={folderHandle}
+              replacements={replacements[section.id]}
+              onSectionsChange={onSectionsChange}
+              onReplacementUploaded={onReplacementUploaded}
+              onReplacementDelete={onReplacementDelete}
+              onSectionRename={onSectionRename}
+              onSectionDelete={onSectionDelete}
+              newSectionIdToFocus={newSectionIdToFocus}
+              onClearNewSectionIdToFocus={onClearNewSectionIdToFocus}
+              selectedAssetIds={selectedAssetIds}
+              onAssetSelect={handleAssetSelect}
+              onSectionReplaceModeChange={onSectionReplaceModeChange}
+              onAssetPreview={(asset: AssetEntry) => setPreviewAssetId(asset.id)}
+            />
+          ))}
+          {unclassifiedSections.map((section) => (
+            <SectionDropArea
+              key={section.id}
+              section={section}
+              assetsById={assetsById}
+              getAssetImageUrl={getAssetImageUrl}
+              onSectionsChange={onSectionsChange}
+              sections={sections}
+              folderName={folderName}
+              folderHandle={folderHandle}
+              replacements={replacements[section.id]}
+              onReplacementUploaded={onReplacementUploaded}
+              onReplacementDelete={onReplacementDelete}
+              onSectionRename={onSectionRename}
+              onSectionDelete={onSectionDelete}
+              newSectionIdToFocus={newSectionIdToFocus}
+              onClearNewSectionIdToFocus={onClearNewSectionIdToFocus}
+              selectedAssetIds={selectedAssetIds}
+              onAssetSelect={handleAssetSelect}
+              onSectionReplaceModeChange={onSectionReplaceModeChange}
+              onAssetPreview={(asset: AssetEntry) => setPreviewAssetId(asset.id)}
+            />
+          ))}
+        </div>
       {contextMenu && (
         <div
           ref={contextMenuRef}
@@ -391,6 +416,29 @@ export function AssetGrid({
           })()
         ) : null}
       </DragOverlay>
+      {previewAssetId && (() => {
+        const asset = assetsById.get(previewAssetId)
+        if (!asset || asset.format === 'lottie') return null
+        return (
+          <div
+            className="asset-preview-overlay"
+            role="dialog"
+            aria-modal="true"
+            aria-label="素材预览"
+            onClick={() => setPreviewAssetId(null)}
+          >
+            <div className="asset-preview-content" onClick={(e) => e.stopPropagation()}>
+              <img
+                src={getAssetImageUrl(asset)}
+                alt={asset.name}
+                className="asset-preview-img"
+                draggable={false}
+              />
+              <div className="asset-preview-name" title={asset.name}>{asset.name}</div>
+            </div>
+          </div>
+        )
+      })()}
       </DndContext>
     </div>
   )

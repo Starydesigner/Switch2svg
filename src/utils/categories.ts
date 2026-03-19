@@ -1,11 +1,16 @@
 import type { AssetEntry } from '../types'
 import { getSemanticLabel } from './semanticRules'
 
+/** 分组替换策略：可替换=用上传图替换并算差值；可删除=整组删除算原大小；保持原样=不减少 */
+export type SectionReplaceMode = 'replace' | 'delete' | 'keep'
+
 export interface CategorySection {
   id: string
   format: string
   semanticLabel: string
   assetIds: string[]
+  /** 默认 'replace' */
+  replaceMode?: SectionReplaceMode
 }
 
 /** 持久化 v2：按 folderId 存每文件夹的 mode + sections */

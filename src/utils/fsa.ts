@@ -193,11 +193,13 @@ export async function readFolderContentFromHandle(
             const format = firstFile ? inferFormat(firstFile) : 'png'
             const assetName = name.replace(/\.imageset$/, '')
             let displayUrl: string | undefined
+            let size: number | undefined
             if (firstFile) {
               try {
                 const imgHandle = await handle.getFileHandle(firstFile, { create: false })
                 const imgFile = await imgHandle.getFile()
                 displayUrl = URL.createObjectURL(imgFile)
+                size = imgFile.size
               } catch (_) {}
             }
             const uniqueId = `${folderId}-${rel.replace(/[/\\]/g, '_')}`
@@ -208,6 +210,7 @@ export async function readFolderContentFromHandle(
               format,
               images,
               displayUrl,
+              size,
             })
           } catch (_) {}
         } else {
@@ -219,8 +222,10 @@ export async function readFolderContentFromHandle(
           const format = inferFormat(name)
           const assetName = name.replace(/\.[^.]+$/, '')
           let displayUrl: string | undefined
+          let size: number | undefined
           try {
             const file = await (handle as FileSystemFileHandle).getFile()
+            size = file.size
             if (['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(ext)) {
               displayUrl = URL.createObjectURL(file)
             }
@@ -233,6 +238,7 @@ export async function readFolderContentFromHandle(
             format,
             images: [{ filename: name }],
             displayUrl,
+            size,
           })
         }
       }
@@ -302,6 +308,7 @@ export async function loadReplacementPreviewsFromHandle(
         const fileHandle = await svgReplace.getFileHandle(filename, { create: false })
         const file = await fileHandle.getFile()
         item.previewUrl = URL.createObjectURL(file)
+        item.size = file.size
       } catch (_) {
         /* 文件不存在或无法读取时仅保留 filename，无预览 */
       }
@@ -367,6 +374,27 @@ export async function saveReplacementFile(
   await writable.write(await file.arrayBuffer())
   await writable.close()
   return safeName
+}
+
+/**
+ * 从分析文件夹下的 Svg_replace 目录中删除指定替换图文件。
+ * 需传入 folderHandle（且需具备 readwrite 权限）。若 remove 不存在则仅跳过删除。
+ */
+export async function deleteReplacementFile(
+  folderHandle: FileSystemDirectoryHandle,
+  filename: string
+): Promise<void> {
+  if (!checkFSA()) return
+  if (typeof (folderHandle as any).requestPermission === 'function') {
+    const state = await (folderHandle as any).requestPermission({ mode: 'readwrite' })
+    if (state === 'denied') throw new Error('没有写入该文件夹的权限')
+  }
+  const svgReplace = await findSvgReplaceDirectory(folderHandle)
+  if (!svgReplace) return
+  const fileHandle = await svgReplace.getFileHandle(filename, { create: false })
+  if (typeof (fileHandle as any).remove === 'function') {
+    await (fileHandle as any).remove()
+  }
 }
 
 /**

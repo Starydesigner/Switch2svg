@@ -140,14 +140,54 @@
   min-height: 0;
 }
 
-.section-upload-title {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary, #6b7280);
-  padding: 4px 0;
+/* 保持原样：整块标绿 */
+.section-upload-wrap--keep .section-upload-card {
+  border-color: rgba(34, 197, 94, 0.4);
+  background: rgba(34, 197, 94, 0.06);
+}
+
+/* 可删除：整块标红 */
+.section-upload-wrap--delete .section-upload-card {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.section-replace-mode-row {
+  display: flex;
+  align-items: center;
   min-height: 28px;
   box-sizing: border-box;
+}
+
+.section-replace-mode-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.section-replace-mode-select {
+  appearance: none;
+  padding: 4px 24px 4px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-page);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.section-replace-mode-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.section-replace-mode-chevron {
+  position: absolute;
+  right: 6px;
+  pointer-events: none;
+  color: var(--text-muted);
 }
 
 .section-upload-card {
@@ -161,7 +201,9 @@
   display: flex;
   flex-direction: row;
   align-items: flex-start;
+  align-content: flex-start;
   flex-wrap: wrap;
+  justify-content: flex-start;
   gap: var(--space-md, 12px);
 }
 
@@ -197,9 +239,18 @@
   color: var(--text-muted, #9ca3af);
 }
 
-.replacement-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space, 8px);
-  justify-content: center;
+/* 可删除/保持原样时的文案提示，占满一行后上传与卡片再流式排列 */
+.section-upload-mode-hint {
+  flex: 0 0 100%;
+  width: 100%;
+  margin: 0 0 var(--space, 8px) 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+.section-upload-wrap--keep .section-upload-mode-hint {
+  color: var(--text-secondary);
+}
+.section-upload-wrap--delete .section-upload-mode-hint {
+  color: var(--text-secondary);
 }

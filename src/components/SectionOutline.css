@@ -11,7 +11,7 @@
   border-radius: var(--radius-sm, 8px);
   box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.04));
   overflow: hidden;
-  margin: 0 var(--space-md, 12px);
+  margin: 12px var(--space-md, 12px);
 }
 
 .outline-title {
@@ -25,11 +25,15 @@
   border-bottom: 1px solid var(--border, #e8e8ec);
 }
 
+/* 红框 1：分组大纲在此区域内滚动，与右侧滚动互不影响 */
 .outline-list {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--space-sm, 8px) 0;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .outline-drop-indicator {
@@ -52,6 +56,7 @@
   font-size: 13px;
   color: var(--text, #1a1a1f);
   min-height: 32px;
+  user-select: none;
 }
 
 .outline-item:hover {
@@ -92,6 +97,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  user-select: none;
 }
 
 .outline-item-clickable {

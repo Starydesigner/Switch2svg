@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Trash2, ArrowBigRightDash } from 'lucide-react'
+import { Trash2, ArrowBigRightDash, ChevronDown } from 'lucide-react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import type { AssetEntry, ReplacementItem } from '../types'
-import type { CategorySection } from '../utils/categories'
+import type { CategorySection, SectionReplaceMode } from '../utils/categories'
 import { SortableAssetCard } from './SortableAssetCard'
 import { ReplacementCard } from './ReplacementCard'
 import { UploadReplacement } from './UploadReplacement'
@@ -30,6 +30,10 @@ interface SectionDropAreaProps {
   selectedAssetIds?: ReadonlySet<string>
   /** 点击素材卡片时切换/设置选中 */
   onAssetSelect?: (assetId: string) => void
+  /** 分组替换策略变更：可替换 / 可删除 / 保持原样 */
+  onSectionReplaceModeChange?: (sectionId: string, mode: SectionReplaceMode) => void
+  /** 双击/空格全屏预览素材 */
+  onAssetPreview?: (asset: AssetEntry) => void
 }
 
 export function SectionDropArea({
@@ -47,8 +51,12 @@ export function SectionDropArea({
   dragHandle,
   selectedAssetIds,
   onAssetSelect,
+  onSectionReplaceModeChange,
+  onAssetPreview,
 }: SectionDropAreaProps) {
   const isUnclassified = (section.semanticLabel || '') === '未分类'
+  const replaceMode = section.replaceMode ?? 'replace'
+  const showUpload = replaceMode === 'replace' && !isUnclassified
   const titleInputRef = useRef<HTMLInputElement>(null)
   const [titleValue, setTitleValue] = useState(section.semanticLabel || '未分类')
   const { setNodeRef, isOver } = useDroppable({ id: section.id })
@@ -124,6 +132,7 @@ export function SectionDropArea({
                   asset={asset}
                   isSelected={selectedAssetIds?.has(asset.id)}
                   onSelect={onAssetSelect}
+                  onPreview={onAssetPreview}
                 />
               ))}
             </div>
@@ -133,14 +142,40 @@ export function SectionDropArea({
           <ArrowBigRightDash size={20} strokeWidth={2} />
           <span>替换为</span>
         </div>
-        <div className="section-upload-wrap">
-          <h4 className="section-upload-title">对应替换 svg 素材</h4>
+        <div className={`section-upload-wrap section-upload-wrap--${replaceMode}`}>
+          {!isUnclassified && onSectionReplaceModeChange && (
+            <div className="section-replace-mode-row">
+              <div className="section-replace-mode-wrap">
+                <select
+                  className="section-replace-mode-select"
+                  value={replaceMode}
+                  onChange={(e) => onSectionReplaceModeChange(section.id, e.target.value as SectionReplaceMode)}
+                  aria-label="替换策略"
+                >
+                  <option value="replace">可替换</option>
+                  <option value="delete">可删除</option>
+                  <option value="keep">保持原样</option>
+                </select>
+                <ChevronDown size={14} strokeWidth={2} className="section-replace-mode-chevron" aria-hidden />
+              </div>
+            </div>
+          )}
           <div
             className="section-upload-card"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
           >
-            {folderName && (
+            {replaceMode === 'delete' && (
+              <p className="section-upload-mode-hint" aria-live="polite">
+                请确认删除素材不影响当前版本
+              </p>
+            )}
+            {replaceMode === 'keep' && (
+              <p className="section-upload-mode-hint" aria-live="polite">
+                该组内容无需替换，暂不调整
+              </p>
+            )}
+            {showUpload && folderName && (
               <UploadReplacement
                 folderName={folderName}
                 folderHandle={folderHandle}
@@ -149,18 +184,16 @@ export function SectionDropArea({
                 onUploaded={handleUploaded}
               />
             )}
-            {replacements.length > 0 ? (
-              <div className="replacement-list">
-                {replacements.map((item) => (
-                  <ReplacementCard
-                    key={item.id}
-                    sectionId={section.id}
-                    item={item}
-                    onDelete={() => onReplacementDelete?.(section.id, item.id)}
-                  />
-                ))}
-              </div>
-            ) : (
+            {replacements.length > 0 &&
+              replacements.map((item) => (
+                <ReplacementCard
+                  key={item.id}
+                  sectionId={section.id}
+                  item={item}
+                  onDelete={() => onReplacementDelete?.(section.id, item.id)}
+                />
+              ))}
+            {replacements.length === 0 && showUpload && (
               <span className="upload-placeholder">可上传多张，拖拽可换组</span>
             )}
           </div>

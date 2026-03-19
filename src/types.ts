@@ -13,6 +13,8 @@ export interface AssetEntry {
   images: AssetImage[]
   /** 由 FSA 实时读取时生成的展示用 URL，优先于 path 用于预览 */
   displayUrl?: string
+  /** 文件大小（字节），由 FSA 读取时填充 */
+  size?: number
 }
 
 export interface FolderManifest {
@@ -44,6 +46,8 @@ export interface ReplacementItem {
   previewUrl?: string
   width?: number
   height?: number
+  /** 文件大小（字节），由 FSA 读取时填充 */
+  size?: number
 }
 
 /** 持久化：按场景、格式、语义分组的分类结果（旧） */

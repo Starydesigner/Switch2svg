@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { Folder, FolderOpen, Save, Sparkles, Settings, X, Plus, ChevronDown } from 'lucide-react'
-import type { FoldersManifest } from './types'
+import { Folder, FolderOpen, Save, Sparkles, Settings, X, Plus, ChevronDown, Search } from 'lucide-react'
+import type { FoldersManifest, AssetEntry } from './types'
+import { getAssetImageUrl } from './utils/assetUrl'
 import {
   buildFormatOnlySections,
   buildDefaultSections,
@@ -16,12 +17,34 @@ import {
   readFolderConfigFromHandle,
   loadReplacementPreviewsFromHandle,
   saveFolderConfigToSvgReplace,
+  deleteReplacementFile,
   removeFolderFromAnalysisConfig,
 } from './utils/fsa'
 import './App.css'
 
 const AI_CONFIG_KEY = 'switch2svg-ai-config'
 const THEME_KEY = 'switch2svg-theme'
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0.00 B'
+  const k = 1024
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${(bytes / Math.pow(k, i)).toFixed(2)} ${['B', 'KB', 'MB', 'GB'][i]}`
+}
+
+/** 模糊匹配：query 的字符按顺序出现在 text 中（不区分大小写） */
+function fuzzyMatch(query: string, text: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  const t = text.toLowerCase()
+  let j = 0
+  for (let i = 0; i < q.length; i++) {
+    const idx = t.indexOf(q[i], j)
+    if (idx === -1) return false
+    j = idx + 1
+  }
+  return true
+}
 
 function loadTheme(): 'light' | 'dark' {
   try {
@@ -140,6 +163,11 @@ function App() {
   /** 左侧面板选中的素材 id（与 AssetGrid 吸顶栏「移动分组」联动） */
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set())
   const [showMoveToSectionDropdown, setShowMoveToSectionDropdown] = useState(false)
+  /** 顶栏搜索：关键词、下拉是否展开、结果中选中的 id */
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchSelectedIds, setSearchSelectedIds] = useState<Set<string>>(new Set())
+  const searchRef = useRef<HTMLDivElement>(null)
 
   /** 展示顺序：未分类始终在最后 */
   const displayOrderSections = useMemo(
@@ -149,6 +177,115 @@ function App() {
     ],
     [displaySections]
   )
+
+  /** 素材 id -> 所属分组（用于搜索结果展示） */
+  const assetIdToSection = useMemo(() => {
+    const m = new Map<string, CategorySection>()
+    for (const s of displaySections) {
+      for (const id of s.assetIds) m.set(id, s)
+    }
+    return m
+  }, [displaySections])
+
+  /** 搜索模糊匹配结果 */
+  const searchFilteredAssets = useMemo(() => {
+    const q = searchQuery.trim()
+    if (!q || !assets.length) return []
+    return assets.filter((a) => fuzzyMatch(q, a.name) || fuzzyMatch(q, a.path))
+  }, [searchQuery, assets])
+
+  /** 搜索结果按分组聚合，顺序与 displayOrderSections 一致；无分组的归为「未分类」 */
+  const searchFilteredBySection = useMemo(() => {
+    if (!searchFilteredAssets.length) return []
+    const sectionIdToAssets = new Map<string, AssetEntry[]>()
+    const unclassified: AssetEntry[] = []
+    for (const asset of searchFilteredAssets) {
+      const sec = assetIdToSection.get(asset.id)
+      if (!sec) unclassified.push(asset)
+      else {
+        const arr = sectionIdToAssets.get(sec.id) ?? []
+        arr.push(asset)
+        sectionIdToAssets.set(sec.id, arr)
+      }
+    }
+    const grouped: { section: CategorySection | null; assets: AssetEntry[] }[] = []
+    for (const s of displayOrderSections) {
+      const list = sectionIdToAssets.get(s.id)
+      if (list?.length) grouped.push({ section: s, assets: list })
+    }
+    if (unclassified.length) grouped.push({ section: null, assets: unclassified })
+    return grouped
+  }, [searchFilteredAssets, displayOrderSections, assetIdToSection])
+
+  /** 点击搜索框外关闭下拉 */
+  useEffect(() => {
+    if (!searchOpen) return
+    const onMouseDown = (e: MouseEvent) => {
+      if (searchRef.current?.contains(e.target as Node)) return
+      setSearchOpen(false)
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    return () => document.removeEventListener('mousedown', onMouseDown)
+  }, [searchOpen])
+
+  const moveSearchSelectedToSection = useCallback(
+    (toSectionId: string) => {
+      const ids = Array.from(searchSelectedIds)
+      if (ids.length === 0) return
+      moveAssetsToSection(displaySections, ids, toSectionId, handleSectionsChange)
+      setSearchSelectedIds(new Set())
+    },
+    [searchSelectedIds, displaySections]
+  )
+
+  /** 将搜索中选中的素材归到新分组：创建新分组并移动选中项 */
+  const moveSearchSelectedToNewSection = useCallback(() => {
+    const ids = Array.from(searchSelectedIds)
+    if (ids.length === 0 || !currentFolder) return
+    const newSection: CategorySection = {
+      id: `manual-${Date.now()}`,
+      format: 'manual',
+      semanticLabel: '新分组',
+      assetIds: [...ids],
+    }
+    const idSet = new Set(ids)
+    const restSections = sections.map((s) => ({
+      ...s,
+      assetIds: s.assetIds.filter((id) => !idSet.has(id)),
+    }))
+    setFolderConfig({ mode: folderConfig?.mode ?? 'manual', sections: [newSection, ...restSections] })
+    setNewSectionIdToFocus(newSection.id)
+    setSearchSelectedIds(new Set())
+  }, [searchSelectedIds, currentFolder, sections, folderConfig?.mode])
+
+  /** 顶栏统计：原素材总大小、按分组 replaceMode 计算预计减少素材包大小（随 sections/replaceMode/replacements 实时更新） */
+  const sizeStats = useMemo(() => {
+    if (!currentFolder || assets.length === 0) return null
+    const replacements = replacementsByFolderId[currentFolder.id] ?? {}
+    const originalTotal = assets.reduce((sum, a) => sum + (a.size ?? 0), 0)
+    let reductionTotal = 0
+    for (const section of displaySections) {
+      const mode = section.replaceMode ?? 'replace'
+      const sectionOriginal = section.assetIds.reduce(
+        (sum, id) => sum + (assets.find((a) => a.id === id)?.size ?? 0),
+        0
+      )
+      if (mode === 'keep') {
+        reductionTotal += 0
+      } else if (mode === 'delete') {
+        reductionTotal += sectionOriginal
+      } else {
+        const reps = replacements[section.id] ?? []
+        const replacementTotal = reps.reduce((s, r) => s + (r.size ?? 0), 0)
+        reductionTotal += Math.max(0, sectionOriginal - replacementTotal)
+      }
+    }
+    return {
+      originalTotal,
+      reductionTotal,
+      hasAnySize: originalTotal > 0 || reductionTotal > 0,
+    }
+  }, [currentFolder, assets, sections, displaySections, replacementsByFolderId])
 
   const moveSelectedToSection = useCallback(
     (toSectionId: string) => {
@@ -160,6 +297,27 @@ function App() {
     },
     [selectedAssetIds, displaySections]
   )
+
+  /** 将当前选中的素材归到新分组：创建新分组并移动选中项 */
+  const moveSelectedToNewSection = useCallback(() => {
+    const ids = Array.from(selectedAssetIds)
+    if (ids.length === 0 || !currentFolder) return
+    const newSection: CategorySection = {
+      id: `manual-${Date.now()}`,
+      format: 'manual',
+      semanticLabel: '新分组',
+      assetIds: [...ids],
+    }
+    const idSet = new Set(ids)
+    const restSections = sections.map((s) => ({
+      ...s,
+      assetIds: s.assetIds.filter((id) => !idSet.has(id)),
+    }))
+    setFolderConfig({ mode: folderConfig?.mode ?? 'manual', sections: [newSection, ...restSections] })
+    setNewSectionIdToFocus(newSection.id)
+    setSelectedAssetIds(new Set())
+    setShowMoveToSectionDropdown(false)
+  }, [selectedAssetIds, currentFolder, sections, folderConfig?.mode])
 
   const handleAddManualGroup = () => {
     if (!currentFolder) return
@@ -188,6 +346,17 @@ function App() {
     if (!currentFolder) return
     setFolderConfig({ mode: folderConfig?.mode ?? 'manual', sections: next })
   }
+
+  const handleSectionReplaceModeChange = useCallback(
+    (sectionId: string, replaceMode: import('./utils/categories').SectionReplaceMode) => {
+      if (!currentFolder) return
+      const next = sections.map((s) =>
+        s.id === sectionId ? { ...s, replaceMode } : s
+      )
+      setFolderConfig({ mode: folderConfig?.mode ?? 'manual', sections: next })
+    },
+    [currentFolder, sections, folderConfig?.mode]
+  )
 
   /** 左侧大纲拖拽排序后，直接更新分组顺序并保持未分类在最后 */
   const handleOutlineReorder = useCallback(
@@ -261,10 +430,21 @@ function App() {
 
   const handleReplacementDelete = (sectionId: string, itemId: string) => {
     if (!currentFolder) return
+    const folderItems = replacementsByFolderId[currentFolder.id] ?? {}
+    const list = folderItems[sectionId] ?? []
+    const item = list.find((i) => i.id === itemId)
+    if (item?.filename) {
+      const folderHandle = liveFolderHandlesRef.current[currentFolder.id]
+      if (folderHandle) {
+        deleteReplacementFile(folderHandle, item.filename).catch((err) =>
+          console.warn('删除 Svg_replace 内文件失败:', err?.message || err)
+        )
+      }
+    }
     setReplacementsByFolderId((prev) => {
       const next = { ...prev, [currentFolder!.id]: { ...(prev[currentFolder!.id] ?? {}) } }
-      const list = (next[currentFolder!.id][sectionId] ?? []).filter((i) => i.id !== itemId)
-      if (list.length) next[currentFolder!.id][sectionId] = list
+      const nextList = (next[currentFolder!.id][sectionId] ?? []).filter((i) => i.id !== itemId)
+      if (nextList.length) next[currentFolder!.id][sectionId] = nextList
       else delete next[currentFolder!.id][sectionId]
       return next
     })
@@ -501,6 +681,144 @@ function App() {
                       AI 配置
                     </button>
                   </div>
+                  <div className="left-panel-search-wrap" ref={searchRef}>
+                    <div className="left-panel-search-input-wrap">
+                      <Search size={16} strokeWidth={2} className="left-panel-search-icon" aria-hidden />
+                      <input
+                        type="text"
+                        className="left-panel-search-input"
+                        placeholder="搜索素材"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onFocus={() => setSearchOpen(true)}
+                        aria-label="搜索素材"
+                        aria-expanded={searchOpen}
+                        aria-haspopup="listbox"
+                      />
+                      {searchQuery.length > 0 && (
+                        <button
+                          type="button"
+                          className="left-panel-search-clear"
+                          onClick={() => setSearchQuery('')}
+                          aria-label="清空输入"
+                        >
+                          <X size={14} strokeWidth={2} />
+                        </button>
+                      )}
+                    </div>
+                    {searchOpen && (
+                      <div className="left-panel-search-dropdown" role="listbox">
+                        {searchFilteredAssets.length === 0 ? (
+                          <div className="left-panel-search-empty">
+                            {searchQuery.trim() ? '无匹配素材' : '输入关键词模糊匹配'}
+                          </div>
+                        ) : (
+                          <>
+                            <div className="left-panel-search-results-scroll">
+                              {searchFilteredBySection.map(({ section, assets: groupAssets }) => (
+                                <div
+                                  key={section?.id ?? 'unclassified'}
+                                  className="left-panel-search-group"
+                                >
+                                  <div className="left-panel-search-group-title">
+                                    {section?.semanticLabel ?? '未分类'}
+                                  </div>
+                                  <div className="left-panel-search-results">
+                                    {groupAssets.map((asset) => {
+                                      const checked = searchSelectedIds.has(asset.id)
+                                      return (
+                                        <div
+                                          key={asset.id}
+                                          className="left-panel-search-result-item"
+                                          role="option"
+                                          aria-selected={checked}
+                                          onClick={() => {
+                                            setSearchSelectedIds((prev) => {
+                                              const next = new Set(prev)
+                                              if (next.has(asset.id)) next.delete(asset.id)
+                                              else next.add(asset.id)
+                                              return next
+                                            })
+                                          }}
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked={checked}
+                                            onChange={(e) => {
+                                              e.stopPropagation()
+                                              setSearchSelectedIds((prev) => {
+                                                const next = new Set(prev)
+                                                if (next.has(asset.id)) next.delete(asset.id)
+                                                else next.add(asset.id)
+                                                return next
+                                              })
+                                            }}
+                                            onClick={(e) => e.stopPropagation()}
+                                            aria-hidden
+                                            className="left-panel-search-result-check"
+                                          />
+                                          <div className="left-panel-search-result-thumb">
+                                            {asset.format !== 'lottie' ? (
+                                              <img src={getAssetImageUrl(asset)} alt="" />
+                                            ) : (
+                                              <span className="thumb-placeholder">Lottie</span>
+                                            )}
+                                          </div>
+                                          <div className="left-panel-search-result-info">
+                                            <span className="left-panel-search-result-name">{asset.name}</span>
+                                            <span className="left-panel-search-result-section">
+                                              {section?.semanticLabel ?? '未分类'}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="left-panel-search-actions">
+                              <span className="left-panel-search-selected-count">已选 {searchSelectedIds.size} 项</span>
+                              <div className="left-panel-search-move-wrap">
+                                <select
+                                  className="left-panel-search-move-select"
+                                  aria-label="选择目标分组"
+                                  disabled={searchSelectedIds.size === 0}
+                                  onChange={(e) => {
+                                    const id = e.target.value
+                                    if (id) {
+                                      if (id === '__new__') moveSearchSelectedToNewSection()
+                                      else moveSearchSelectedToSection(id)
+                                      e.target.value = ''
+                                    }
+                                  }}
+                                  defaultValue=""
+                                >
+                                  <option value="">移动到分组…</option>
+                                  <option value="__new__">归到新分组</option>
+                                  {displayOrderSections.map((s) => (
+                                    <option key={s.id} value={s.id}>
+                                      {s.semanticLabel || '未命名'}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {sizeStats?.hasAnySize && (
+                    <div className="left-panel-sticky-stats" aria-label="文件大小统计">
+                      <span className="left-panel-sticky-stats-item">
+                        原素材：<strong>{formatBytes(sizeStats.originalTotal)}</strong>
+                      </span>
+                      <span className="left-panel-sticky-stats-item">
+                        预计减少素材包：<strong>{formatBytes(sizeStats.reductionTotal)}</strong>
+                      </span>
+                    </div>
+                  )}
                   <div className="left-panel-sticky-right">
                     <button type="button" className="save-btn small" onClick={handleSave} disabled={!currentFolder}>
                       <Save size={14} strokeWidth={2} />
@@ -534,6 +852,7 @@ function App() {
                 selectedAssetIds={selectedAssetIds}
                 onSelectionChange={setSelectedAssetIds}
                 onMoveSelectedToSection={moveSelectedToSection}
+                onSectionReplaceModeChange={handleSectionReplaceModeChange}
                   />
                 </div>
               </div>
@@ -559,6 +878,14 @@ function App() {
                           onClick={() => setShowMoveToSectionDropdown(false)}
                         />
                         <div className="move-to-section-dropdown selection-capsule-dropdown" role="listbox">
+                          <button
+                            type="button"
+                            className="move-to-section-option move-to-section-option-new"
+                            role="option"
+                            onClick={() => moveSelectedToNewSection()}
+                          >
+                            归到新分组
+                          </button>
                           {displayOrderSections.map((section) => (
                             <button
                               key={section.id}

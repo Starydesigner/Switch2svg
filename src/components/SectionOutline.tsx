@@ -103,8 +103,8 @@ export function SectionOutline({ sections, onReorder, onSectionClick }: SectionO
   return (
     <aside className="outline-sidebar" aria-label="分组目录">
       <div className="outline-title">分组</div>
-      <DndContext sensors={sensors} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
-        <div className="outline-list">
+      <div className="outline-list">
+        <DndContext sensors={sensors} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
           {sortableSections.map((section, index) => (
             <Fragment key={section.id}>
               {insertBeforeIndex === index && <div className="outline-drop-indicator" aria-hidden />}
@@ -131,8 +131,8 @@ export function SectionOutline({ sections, onReorder, onSectionClick }: SectionO
               <span className="outline-item-label">{section.semanticLabel || '未命名'}</span>
             </div>
           ))}
-        </div>
-      </DndContext>
+        </DndContext>
+      </div>
     </aside>
   )
 }

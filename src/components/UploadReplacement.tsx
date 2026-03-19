@@ -84,6 +84,7 @@ export function UploadReplacement({
             previewUrl,
             width: dimensions?.width,
             height: dimensions?.height,
+            size: file.size,
           }
           onUploaded(item)
         } catch (err: any) {
