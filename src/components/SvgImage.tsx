@@ -21,10 +21,10 @@ export function SvgImage({
     let skipTint = false
     try {
       SVGInject(img, {
-        beforeInject: (_i, svg) => {
-          skipTint = svgShouldSkipTint(svg as SVGSVGElement)
+        beforeInject: (_i: HTMLImageElement, svg: SVGSVGElement) => {
+          skipTint = svgShouldSkipTint(svg)
         },
-        afterInject: (_i, svg) => {
+        afterInject: (_i: HTMLImageElement, svg: SVGSVGElement) => {
           const container = svg.parentElement
           if (container?.classList.contains('svg-tint-container') && skipTint) {
             container.classList.add('svg-no-tint')

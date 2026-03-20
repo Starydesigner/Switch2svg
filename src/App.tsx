@@ -10,18 +10,21 @@ import {
   type FolderCategoryConfig,
 } from './utils/categories'
 import { AssetGrid, moveAssetsToSection } from './components/AssetGrid'
+import { WelcomeGuide } from './components/WelcomeGuide'
 import { SvgImage } from './components/SvgImage'
 import { AssetThumbPlaceholder } from './components/AssetThumbPlaceholder'
 import { SectionOutline } from './components/SectionOutline'
 import {
   pickAnalysisFolderDirect,
-  readFolderContentFromHandle,
-  readFolderConfigFromHandle,
-  loadReplacementPreviewsFromHandle,
+  readFolderContentFromAccess,
+  readFolderConfigFromAccess,
+  loadReplacementPreviewsFromAccess,
   saveFolderConfigToSvgReplace,
   deleteReplacementFile,
   removeFolderFromAnalysisConfig,
+  type LiveFolderAccess,
 } from './utils/fsa'
+import { blockingConfirm } from './utils/blockingConfirm'
 import './App.css'
 
 const AI_CONFIG_KEY = 'switch2svg-ai-config'
@@ -123,8 +126,8 @@ function App() {
   const [categoriesByFolderId, setCategoriesByFolderId] = useState<Record<string, FolderCategoryConfig>>({})
   /** 通过「选择文件夹」即时读取的文件夹（无需 build-manifest 即可查看） */
   const [liveFolders, setLiveFolders] = useState<FoldersManifest['folders']>([])
-  /** 当前会话中直接选择的文件夹 handle，用于保存/上传时不再弹窗 */
-  const liveFolderHandlesRef = useRef<Record<string, FileSystemDirectoryHandle>>({})
+  /** 当前会话中直接选择的文件夹（FSA handle 或 Tauri 绝对路径），用于保存/上传时不再弹窗 */
+  const liveFolderAccessRef = useRef<Record<string, LiveFolderAccess>>({})
   /** 已从列表中移除的 manifest 文件夹名称（已从 analysis-folders 配置中删除，需过滤展示） */
   const [removedFolderNames, setRemovedFolderNames] = useState<Set<string>>(new Set())
   const [addFolderLoading, setAddFolderLoading] = useState(false)
@@ -205,9 +208,15 @@ function App() {
   }
 
   /** 智能分组：已配置千问 API 时可用大模型语义分组，否则使用内置规则（按文件名关键词）分组 */
-  const handleRunAIAnalysis = () => {
+  const handleRunAIAnalysis = async () => {
     if (!currentFolder) return
-    if (!confirm('将依据元素命名自动归类分组，当前已创建分组会消失，请谨慎操作')) return
+    if (
+      !(await blockingConfirm(
+        '将依据元素命名自动归类分组，当前已创建分组会消失，请谨慎操作',
+        '自动语义分组'
+      ))
+    )
+      return
     setFolderConfig({ mode: 'auto', sections: buildDefaultSections(assets) })
   }
 
@@ -424,13 +433,14 @@ function App() {
     document.getElementById(`section-${sectionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [])
 
-  const handleSectionDelete = (sectionId: string) => {
+  const handleSectionDelete = async (sectionId: string) => {
     if (!currentFolder) return
     const sourceSections = categoriesByFolderId[currentFolder.id]?.sections ?? displaySections
     const target = sourceSections.find((s) => s.id === sectionId)
     if (!target) return
     if ((target.semanticLabel || '') === '未分类') return
-    if (!confirm(`确定删除分组「${target.semanticLabel || '未分类'}」吗？`)) return
+    if (!(await blockingConfirm(`确定删除分组「${target.semanticLabel || '未分类'}」吗？`, '删除分组')))
+      return
 
     const rest = sourceSections.filter((s) => s.id !== sectionId).map((s) => ({ ...s, assetIds: [...s.assetIds] }))
     if (target.assetIds.length > 0) {
@@ -463,8 +473,8 @@ function App() {
     Object.entries(replacements).forEach(([sectionId, items]) => {
       replacementsMap[sectionId] = items.map((i) => i.filename)
     })
-    const folderHandle = liveFolderHandlesRef.current[currentFolder.id]
-    saveFolderConfigToSvgReplace(currentFolder.name, { sections, replacements: replacementsMap }, folderHandle)
+    const folderAccess = liveFolderAccessRef.current[currentFolder.id]
+    saveFolderConfigToSvgReplace(currentFolder.name, { sections, replacements: replacementsMap }, folderAccess)
       .then(() => alert('已保存配置到分析文件夹下 Svg_replace 文件夹中。下次打开分析文件夹将自动读取配置。'))
       .catch((err) => alert('保存失败: ' + (err?.message || err)))
   }
@@ -486,9 +496,9 @@ function App() {
     const list = folderItems[sectionId] ?? []
     const item = list.find((i) => i.id === itemId)
     if (item?.filename) {
-      const folderHandle = liveFolderHandlesRef.current[currentFolder.id]
-      if (folderHandle) {
-        deleteReplacementFile(folderHandle, item.filename).catch((err) =>
+      const folderAccess = liveFolderAccessRef.current[currentFolder.id]
+      if (folderAccess) {
+        deleteReplacementFile(folderAccess, item.filename).catch((err) =>
           console.warn('删除 Svg_replace 内文件失败:', err?.message || err)
         )
       }
@@ -520,18 +530,18 @@ function App() {
     const existingNames = allFolders.map((f) => f.name)
     setAddFolderLoading(true)
     try {
-      const { folderHandle, folderName } = await pickAnalysisFolderDirect()
+      const { access, folderName } = await pickAnalysisFolderDirect()
       if (existingNames.includes(folderName)) {
         alert('该文件夹已在列表中')
         return
       }
       const folderId = `live_${folderName.replace(/\W/g, '_')}_${Date.now()}`
-      const folderManifest = await readFolderContentFromHandle(folderHandle, folderName, folderId)
-      liveFolderHandlesRef.current[folderId] = folderHandle
+      const folderManifest = await readFolderContentFromAccess(access, folderName, folderId)
+      liveFolderAccessRef.current[folderId] = access
       setLiveFolders((prev) => [...prev, folderManifest])
       setSelectedFolderId(folderId)
 
-      const savedConfig = await readFolderConfigFromHandle(folderHandle)
+      const savedConfig = await readFolderConfigFromAccess(access)
       let appliedSections: CategorySection[] | null = null
       if (savedConfig?.sections?.length) {
         appliedSections = applySavedSections(folderManifest.assets, savedConfig.sections)
@@ -542,7 +552,7 @@ function App() {
         }))
       }
       if (savedConfig?.replacements && Object.keys(savedConfig.replacements).length > 0) {
-        const itemsBySection = await loadReplacementPreviewsFromHandle(folderHandle, savedConfig.replacements)
+        const itemsBySection = await loadReplacementPreviewsFromAccess(access, savedConfig.replacements)
         // 用当前要展示的 section id 对齐，避免 config 与展示的 section id 不一致导致预览不显示
         const alignedReplacements: Record<string, import('./types').ReplacementItem[]> = {}
         if (appliedSections && appliedSections.length > 0) {
@@ -561,8 +571,8 @@ function App() {
     }
   }
 
-  const handleDeleteFolder = (folderId: string, folderName: string, isLive: boolean) => {
-    if (!confirm(`确定要移除「${folderName}」吗？`)) return
+  const handleDeleteFolder = async (folderId: string, folderName: string, isLive: boolean) => {
+    if (!(await blockingConfirm(`确定要移除「${folderName}」吗？`, '移除文件夹'))) return
     if (selectedFolderId === folderId) {
       const rest = allFolders.filter((f) => f.id !== folderId)
       setSelectedFolderId(rest[0]?.id ?? null)
@@ -572,7 +582,7 @@ function App() {
       if (folder) {
         folder.assets.forEach((a) => { if (a.displayUrl) URL.revokeObjectURL(a.displayUrl) })
         setLiveFolders((prev) => prev.filter((f) => f.id !== folderId))
-        delete liveFolderHandlesRef.current[folderId]
+        delete liveFolderAccessRef.current[folderId]
       }
     } else {
       setRemovedFolderNames((prev) => new Set(prev).add(folderName))
@@ -589,8 +599,8 @@ function App() {
 
   useEffect(() => {
     if (!currentFolder) return
-    const folderHandle = liveFolderHandlesRef.current[currentFolder.id]
-    if (!folderHandle) return
+    const folderAccess = liveFolderAccessRef.current[currentFolder.id]
+    if (!folderAccess) return
 
     const sectionsToSave = categoriesByFolderId[currentFolder.id]?.sections ?? displaySections
     const replacements = replacementsByFolderId[currentFolder.id] ?? {}
@@ -603,7 +613,7 @@ function App() {
       saveFolderConfigToSvgReplace(
         currentFolder.name,
         { sections: sectionsToSave, replacements: replacementsMap },
-        folderHandle
+        folderAccess
       ).catch((err) => {
         console.error('Auto save config failed:', err)
       })
@@ -767,7 +777,9 @@ function App() {
         {loading && <p className="status">加载资源清单中…</p>}
         {error && <p className="status error">{error}</p>}
         {!loading && !error && allFolders.length === 0 && (
-          <p className="status">请点击「选择文件夹」添加分析文件夹，即可实时查看该目录下所有层级的资源。</p>
+          <div className="welcome-scroll">
+            <WelcomeGuide onPickFolder={() => { void handleOpenAddFolder() }} picking={addFolderLoading} />
+          </div>
         )}
         {!loading && !error && currentFolder && (
           <div className="content">
@@ -951,7 +963,7 @@ function App() {
                 sections={displaySections}
                 onSectionsChange={handleSectionsChange}
                 folderName={currentFolder.name}
-                folderHandle={liveFolderHandlesRef.current[currentFolder.id]}
+                folderAccess={liveFolderAccessRef.current[currentFolder.id]}
                 replacements={replacementsByFolderId[currentFolder.id] ?? {}}
                 onReplacementUploaded={handleReplacementUploaded}
                 onReplacementDelete={handleReplacementDelete}

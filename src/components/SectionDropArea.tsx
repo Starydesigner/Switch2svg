@@ -6,6 +6,7 @@ import type { AssetEntry, ReplacementItem } from '../types'
 import type { CategorySection, SectionReplaceMode } from '../utils/categories'
 import { SortableAssetCard } from './SortableAssetCard'
 import { ReplacementCard } from './ReplacementCard'
+import type { LiveFolderAccess } from '../utils/fsa'
 import { UploadReplacement } from './UploadReplacement'
 import './SectionDropArea.css'
 
@@ -16,7 +17,7 @@ interface SectionDropAreaProps {
   onSectionsChange: (next: CategorySection[]) => void
   sections: CategorySection[]
   folderName?: string
-  folderHandle?: FileSystemDirectoryHandle
+  folderAccess?: LiveFolderAccess
   replacements?: ReplacementItem[]
   onReplacementUploaded?: (sectionId: string, item: ReplacementItem) => void
   onReplacementDelete?: (sectionId: string, itemId: string) => void
@@ -40,7 +41,7 @@ export function SectionDropArea({
   section,
   assetsById,
   folderName,
-  folderHandle,
+  folderAccess,
   replacements = [],
   onReplacementUploaded,
   onReplacementDelete,
@@ -178,7 +179,7 @@ export function SectionDropArea({
             {showUpload && folderName && (
               <UploadReplacement
                 folderName={folderName}
-                folderHandle={folderHandle}
+                folderAccess={folderAccess}
                 sectionId={section.id}
                 sectionLabel={sectionLabel}
                 onUploaded={handleUploaded}

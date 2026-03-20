@@ -334,6 +334,14 @@
   color: #dc2626;
 }
 
+/* 无文件夹时的欢迎页：允许主区内滚动 */
+.welcome-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-xl);
+}
+
 .content {
   flex: 1;
   min-height: 0;

@@ -16,6 +16,7 @@ import { assetHasImagePreview, getAssetImageUrl } from '../utils/assetUrl'
 import { SvgImage, isSvgFile } from './SvgImage'
 import { AssetThumbPlaceholder } from './AssetThumbPlaceholder'
 import { parseReplacementDragId } from './ReplacementCard'
+import type { LiveFolderAccess } from '../utils/fsa'
 import { SectionDropArea } from './SectionDropArea'
 import { AssetCardDragPreview } from './AssetCardDragPreview'
 import './AssetGrid.css'
@@ -32,7 +33,7 @@ function SectionCard({
   sections,
   assetsById,
   folderName,
-  folderHandle,
+  folderAccess,
   replacements,
   onSectionsChange,
   onReplacementUploaded,
@@ -50,7 +51,7 @@ function SectionCard({
   sections: CategorySection[]
   assetsById: Map<string, AssetEntry>
   folderName?: string
-  folderHandle?: FileSystemDirectoryHandle
+  folderAccess?: LiveFolderAccess
   replacements?: ReplacementItem[]
   onSectionsChange: (next: CategorySection[]) => void
   onReplacementUploaded?: (sectionId: string, item: ReplacementItem) => void
@@ -72,7 +73,7 @@ function SectionCard({
       onSectionsChange={onSectionsChange}
       sections={sections}
       folderName={folderName}
-      folderHandle={folderHandle}
+      folderAccess={folderAccess}
       replacements={replacements}
       onReplacementUploaded={onReplacementUploaded}
       onReplacementDelete={onReplacementDelete}
@@ -93,7 +94,7 @@ interface AssetGridProps {
   sections: CategorySection[]
   onSectionsChange: (next: CategorySection[]) => void
   folderName?: string
-  folderHandle?: FileSystemDirectoryHandle
+  folderAccess?: LiveFolderAccess
   replacements?: Record<string, ReplacementItem[]>
   onReplacementUploaded?: (sectionId: string, item: ReplacementItem) => void
   onReplacementDelete?: (sectionId: string, itemId: string) => void
@@ -139,7 +140,7 @@ export function AssetGrid({
   sections,
   onSectionsChange,
   folderName,
-  folderHandle,
+  folderAccess,
   replacements = {},
   onReplacementUploaded,
   onReplacementDelete,
@@ -346,7 +347,7 @@ export function AssetGrid({
               sections={sections}
               assetsById={assetsById}
               folderName={folderName}
-              folderHandle={folderHandle}
+              folderAccess={folderAccess}
               replacements={replacements[section.id]}
               onSectionsChange={onSectionsChange}
               onReplacementUploaded={onReplacementUploaded}
@@ -370,7 +371,7 @@ export function AssetGrid({
               onSectionsChange={onSectionsChange}
               sections={sections}
               folderName={folderName}
-              folderHandle={folderHandle}
+              folderAccess={folderAccess}
               replacements={replacements[section.id]}
               onReplacementUploaded={onReplacementUploaded}
               onReplacementDelete={onReplacementDelete}

@@ -1,3 +1,4 @@
+import { isTauri } from '@tauri-apps/api/core'
 import type { AnalysisFoldersConfig, AssetEntry, FolderManifest, ReplacementItem } from '../types'
 import type { CategorySection } from './categories'
 
@@ -27,6 +28,68 @@ const SVG_REPLACE_CONFIG_FILE = 'config.json'
 
 function checkFSA(): boolean {
   return typeof window !== 'undefined' && 'showDirectoryPicker' in window
+}
+
+/** 桌面端（Tauri）用原生对话框选目录；浏览器用 FSA DirectoryHandle */
+export type LiveFolderAccess =
+  | { kind: 'fsa'; handle: FileSystemDirectoryHandle }
+  | { kind: 'tauri'; rootPath: string }
+
+function folderBasename(p: string): string {
+  const n = p.replace(/\\/g, '/').replace(/\/+$/, '')
+  const i = n.lastIndexOf('/')
+  return (i >= 0 ? n.slice(i + 1) : n) || 'folder'
+}
+
+/** 与 FSA 一致；额外兼容磁盘上大小写不一致的目录名（如 svg_replace） */
+function isSvgReplaceFolderName(name: string): boolean {
+  return name === SVG_REPLACE_DIR_NAME || name.toLowerCase() === SVG_REPLACE_DIR_NAME.toLowerCase()
+}
+
+function normalizeTauriRootPath(p: string): string {
+  return p.replace(/[/\\]+$/, '')
+}
+
+async function findSvgReplacePathTauri(rootPath: string): Promise<string | null> {
+  const { readDir } = await import('@tauri-apps/plugin-fs')
+  const { join } = await import('@tauri-apps/api/path')
+  const root = normalizeTauriRootPath(rootPath)
+
+  try {
+    const entries = await readDir(root)
+    const direct = entries.find((e) => e.isDirectory && isSvgReplaceFolderName(e.name))
+    if (direct) return await join(root, direct.name)
+  } catch (_) {}
+
+  async function walk(dirPath: string): Promise<string | null> {
+    let entries: Awaited<ReturnType<typeof readDir>>
+    try {
+      entries = await readDir(dirPath)
+    } catch (_) {
+      return null
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory) continue
+      const childPath = await join(dirPath, entry.name)
+      if (isSvgReplaceFolderName(entry.name)) return childPath
+      const found = await walk(childPath)
+      if (found) return found
+    }
+    return null
+  }
+
+  return walk(root)
+}
+
+async function getSvgReplacePathForWriteTauri(rootPath: string): Promise<string> {
+  const { mkdir } = await import('@tauri-apps/plugin-fs')
+  const { join } = await import('@tauri-apps/api/path')
+  const root = normalizeTauriRootPath(rootPath)
+  const existing = await findSvgReplacePathTauri(root)
+  if (existing) return existing
+  const p = await join(root, SVG_REPLACE_DIR_NAME)
+  await mkdir(p, { recursive: true })
+  return p
 }
 
 /**
@@ -127,14 +190,43 @@ export async function pickProjectRootAndListFolders(): Promise<{
 
 /**
  * 用户直接选择要分析的文件夹（一次选择，不再从子文件夹列表中选）
+ * - 浏览器：File System Access API
+ * - Tauri：系统原生目录对话框（WKWebView 下 showDirectoryPicker 通常无效）
  */
 export async function pickAnalysisFolderDirect(): Promise<{
-  folderHandle: FileSystemDirectoryHandle
+  access: LiveFolderAccess
   folderName: string
 }> {
+  if (isTauri()) {
+    const { open } = await import('@tauri-apps/plugin-dialog')
+    /**
+     * recursive: 把子目录纳入 fs 作用域，否则常能列目录/读部分文件，但读不到 Svg_replace/config.json
+     * fileAccessMode: 'scoped'：macOS 上对所选目录保持安全作用域访问（默认 copy 模式可能无法稳定访问深层文件）
+     */
+    let selected: string | null
+    try {
+      selected = await open({
+        directory: true,
+        multiple: false,
+        recursive: true,
+        fileAccessMode: 'scoped',
+      })
+    } catch {
+      selected = await open({
+        directory: true,
+        multiple: false,
+        recursive: true,
+      })
+    }
+    if (selected === null) {
+      throw new DOMException('The user aborted a request.', 'AbortError')
+    }
+    const rootPath = normalizeTauriRootPath(selected as string)
+    return { access: { kind: 'tauri', rootPath }, folderName: folderBasename(rootPath) }
+  }
   if (!checkFSA()) throw new Error('当前浏览器不支持文件系统访问')
   const folderHandle = await (window as any).showDirectoryPicker({ mode: 'readwrite' })
-  return { folderHandle, folderName: folderHandle.name }
+  return { access: { kind: 'fsa', handle: folderHandle }, folderName: folderHandle.name }
 }
 
 /**
@@ -244,6 +336,96 @@ export async function readFolderContentFromHandle(
   return { id: folderId, name: folderName, assets }
 }
 
+async function readFolderContentFromTauriRoot(
+  rootPath: string,
+  folderName: string,
+  folderId: string
+): Promise<FolderManifest> {
+  const { readDir, readFile } = await import('@tauri-apps/plugin-fs')
+  const { join } = await import('@tauri-apps/api/path')
+  const root = normalizeTauriRootPath(rootPath)
+  const assets: AssetEntry[] = []
+  const usedIds = new Set<string>()
+
+  function ensureUniqueId(baseId: string): string {
+    let id = baseId
+    let n = 0
+    while (usedIds.has(id)) {
+      n += 1
+      id = `${baseId}--${n}`
+    }
+    usedIds.add(id)
+    return id
+  }
+
+  async function walkDir(dirPath: string, relPrefix: string): Promise<void> {
+    const entries = await readDir(dirPath)
+    for (const entry of entries) {
+      const rel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name
+      if (entry.isDirectory) {
+        if (isSvgReplaceFolderName(entry.name)) continue
+        await walkDir(await join(dirPath, entry.name), rel)
+      } else if (entry.isFile) {
+        const name = entry.name
+        const ext =
+          name.includes('.') && name.lastIndexOf('.') > 0
+            ? name.slice(name.lastIndexOf('.')).toLowerCase()
+            : ''
+        const format = inferFormat(name)
+        const baseName = ext ? name.slice(0, -ext.length) : name
+        const assetName = baseName || name
+        let displayUrl: string | undefined
+        let size: number | undefined
+        try {
+          const buf = await readFile(await join(dirPath, name))
+          size = buf.byteLength
+          if (PREVIEW_IMAGE_EXTS.has(ext)) {
+            const mime =
+              ext === '.svg'
+                ? 'image/svg+xml'
+                : ext === '.png'
+                  ? 'image/png'
+                  : ext === '.jpg' || ext === '.jpeg'
+                    ? 'image/jpeg'
+                    : ext === '.webp'
+                      ? 'image/webp'
+                      : ext === '.gif'
+                        ? 'image/gif'
+                        : 'application/octet-stream'
+            displayUrl = URL.createObjectURL(new Blob([buf], { type: mime }))
+          }
+        } catch (_) {}
+        const baseId = `${folderId}-${rel.replace(/[/\\]/g, '_')}`
+        const uniqueId = ensureUniqueId(baseId)
+        assets.push({
+          id: uniqueId,
+          name: assetName,
+          path: rel,
+          format,
+          images: [{ filename: name }],
+          displayUrl,
+          imagePreviewable: !!displayUrl,
+          size,
+        })
+      }
+    }
+  }
+
+  await walkDir(root, '')
+  return { id: folderId, name: folderName, assets }
+}
+
+export async function readFolderContentFromAccess(
+  access: LiveFolderAccess,
+  folderName: string,
+  folderId: string
+): Promise<FolderManifest> {
+  if (access.kind === 'fsa') {
+    return readFolderContentFromHandle(access.handle, folderName, folderId)
+  }
+  return readFolderContentFromTauriRoot(access.rootPath, folderName, folderId)
+}
+
 /**
  * 通过 FSA 递归读取指定文件夹下所有层级资源（需项目根 handle + 文件夹名）
  */
@@ -281,6 +463,36 @@ export async function readFolderConfigFromHandle(
   }
 }
 
+async function readFolderConfigFromTauriRoot(
+  rootPath: string
+): Promise<{ sections: CategorySection[]; replacements: Record<string, string[]> } | null> {
+  try {
+    const svgReplacePath = await findSvgReplacePathTauri(rootPath)
+    if (!svgReplacePath) return null
+    const { join } = await import('@tauri-apps/api/path')
+    const { readTextFile } = await import('@tauri-apps/plugin-fs')
+    const text = await readTextFile(await join(svgReplacePath, SVG_REPLACE_CONFIG_FILE))
+    const data = JSON.parse(text) as { sections?: CategorySection[]; replacements?: Record<string, string | string[]> }
+    const sections = Array.isArray(data.sections) ? data.sections : []
+    const replacements: Record<string, string[]> = {}
+    if (data.replacements && typeof data.replacements === 'object') {
+      for (const [sectionId, val] of Object.entries(data.replacements)) {
+        replacements[sectionId] = Array.isArray(val) ? val : val ? [val] : []
+      }
+    }
+    return { sections, replacements }
+  } catch (_) {
+    return null
+  }
+}
+
+export async function readFolderConfigFromAccess(
+  access: LiveFolderAccess
+): Promise<{ sections: CategorySection[]; replacements: Record<string, string[]> } | null> {
+  if (access.kind === 'fsa') return readFolderConfigFromHandle(access.handle)
+  return readFolderConfigFromTauriRoot(access.rootPath)
+}
+
 /**
  * 从 Svg_replace 目录读取替换图文件并生成预览 URL，用于加载 config 后显示图片预览
  */
@@ -315,21 +527,89 @@ export async function loadReplacementPreviewsFromHandle(
   return result
 }
 
+function mimeForReplacementFilename(filename: string): string {
+  const lower = filename.toLowerCase()
+  if (lower.endsWith('.svg')) return 'image/svg+xml'
+  if (lower.endsWith('.png')) return 'image/png'
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg'
+  if (lower.endsWith('.webp')) return 'image/webp'
+  if (lower.endsWith('.gif')) return 'image/gif'
+  return 'application/octet-stream'
+}
+
+async function loadReplacementPreviewsFromTauriRoot(
+  rootPath: string,
+  replacements: Record<string, string[]>
+): Promise<Record<string, ReplacementItem[]>> {
+  const result: Record<string, ReplacementItem[]> = {}
+  const svgReplacePath = await findSvgReplacePathTauri(rootPath)
+  if (!svgReplacePath) return result
+  const { readFile } = await import('@tauri-apps/plugin-fs')
+  const { join } = await import('@tauri-apps/api/path')
+  for (const [sectionId, filenames] of Object.entries(replacements)) {
+    const items: ReplacementItem[] = []
+    for (let i = 0; i < (filenames || []).length; i++) {
+      const filename = filenames[i]
+      const item: ReplacementItem = {
+        id: `rep_loaded_${sectionId}_${i}`,
+        filename,
+      }
+      try {
+        const buf = await readFile(await join(svgReplacePath, filename))
+        const mime = mimeForReplacementFilename(filename)
+        item.previewUrl = URL.createObjectURL(new Blob([buf], { type: mime }))
+        item.isSvg = mime === 'image/svg+xml' || /\.svg$/i.test(filename)
+        item.size = buf.byteLength
+      } catch (_) {
+        /* 文件不存在或无法读取时仅保留 filename，无预览 */
+      }
+      items.push(item)
+    }
+    result[sectionId] = items
+  }
+  return result
+}
+
+export async function loadReplacementPreviewsFromAccess(
+  access: LiveFolderAccess,
+  replacements: Record<string, string[]>
+): Promise<Record<string, ReplacementItem[]>> {
+  if (access.kind === 'fsa') {
+    return loadReplacementPreviewsFromHandle(access.handle, replacements)
+  }
+  return loadReplacementPreviewsFromTauriRoot(access.rootPath, replacements)
+}
+
 /**
  * 将当前分析文件夹的分组配置与替换图映射保存到该文件夹下的 Svg_replace/config.json；无 Svg_replace 则自动创建。
- * 若传入 folderHandle 则直接在该目录下创建 Svg_replace，不再弹窗让用户选择。
+ * 若传入 access 则直接在该目录下创建 Svg_replace，不再弹窗让用户选择。
  */
 /** 保存时 replacements 为 sectionId -> 文件名数组（多张） */
 export async function saveFolderConfigToSvgReplace(
   folderName: string,
   payload: { sections: CategorySection[]; replacements: Record<string, string | string[]> },
-  folderHandle?: FileSystemDirectoryHandle
+  access?: LiveFolderAccess
 ): Promise<void> {
+  if (access?.kind === 'tauri') {
+    const svgReplace = await getSvgReplacePathForWriteTauri(access.rootPath)
+    const { join } = await import('@tauri-apps/api/path')
+    const { writeFile } = await import('@tauri-apps/plugin-fs')
+    await writeFile(
+      await join(svgReplace, SVG_REPLACE_CONFIG_FILE),
+      new TextEncoder().encode(JSON.stringify(payload, null, 2))
+    )
+    return
+  }
+
   if (!checkFSA()) throw new Error('当前浏览器不支持文件系统访问')
+
   let target: FileSystemDirectoryHandle
-  if (folderHandle) {
-    target = folderHandle
+  if (access?.kind === 'fsa') {
+    target = access.handle
   } else {
+    if (isTauri()) {
+      throw new Error('请使用顶部「选择文件夹」添加分析目录后再保存')
+    }
     const rootHandle = await (window as any).showDirectoryPicker({ mode: 'readwrite' })
     target = await rootHandle.getDirectoryHandle(folderName, { create: false })
   }
@@ -341,24 +621,38 @@ export async function saveFolderConfigToSvgReplace(
 }
 
 /**
- * 将替换图写入指定分析文件夹下的 Svg_replace 目录。若传入 folderHandle 则直接在该目录下创建，不再弹窗。
+ * 将替换图写入指定分析文件夹下的 Svg_replace 目录。若传入 access 则直接在该目录下创建，不再弹窗。
  * 写入前会请求 readwrite 权限，避免 createWritable 静默失败或抛 NotAllowedError。
  */
 export async function saveReplacementFile(
   folderName: string,
   file: File,
   preferredName?: string,
-  folderHandle?: FileSystemDirectoryHandle
+  access?: LiveFolderAccess
 ): Promise<string> {
+  if (access?.kind === 'tauri') {
+    const svgReplace = await getSvgReplacePathForWriteTauri(access.rootPath)
+    const { join } = await import('@tauri-apps/api/path')
+    const { writeFile } = await import('@tauri-apps/plugin-fs')
+    const name = preferredName || file.name
+    const safeName = name.replace(/[/\\?*:]/g, '_')
+    await writeFile(await join(svgReplace, safeName), new Uint8Array(await file.arrayBuffer()))
+    return safeName
+  }
+
   if (!checkFSA()) throw new Error('当前浏览器不支持文件系统访问')
+
   let target: FileSystemDirectoryHandle
-  if (folderHandle) {
-    target = folderHandle
+  if (access?.kind === 'fsa') {
+    target = access.handle
     if (typeof (target as any).requestPermission === 'function') {
       const state = await (target as any).requestPermission({ mode: 'readwrite' })
       if (state === 'denied') throw new Error('没有写入该文件夹的权限，请在弹窗中允许访问')
     }
   } else {
+    if (isTauri()) {
+      throw new Error('请使用顶部「选择文件夹」添加分析目录后再上传')
+    }
     const rootHandle = await (window as any).showDirectoryPicker({ mode: 'readwrite' })
     target = await rootHandle.getDirectoryHandle(folderName, { create: false })
   }
@@ -374,13 +668,22 @@ export async function saveReplacementFile(
 
 /**
  * 从分析文件夹下的 Svg_replace 目录中删除指定替换图文件。
- * 需传入 folderHandle（且需具备 readwrite 权限）。若 remove 不存在则仅跳过删除。
+ * 需传入 access（且 FSA 需具备 readwrite 权限）。若 remove 不存在则仅跳过删除。
  */
-export async function deleteReplacementFile(
-  folderHandle: FileSystemDirectoryHandle,
-  filename: string
-): Promise<void> {
+export async function deleteReplacementFile(access: LiveFolderAccess, filename: string): Promise<void> {
+  if (access.kind === 'tauri') {
+    const svgReplacePath = await findSvgReplacePathTauri(access.rootPath)
+    if (!svgReplacePath) return
+    const { join } = await import('@tauri-apps/api/path')
+    const { remove } = await import('@tauri-apps/plugin-fs')
+    try {
+      await remove(await join(svgReplacePath, filename))
+    } catch (_) {}
+    return
+  }
+
   if (!checkFSA()) return
+  const folderHandle = access.handle
   if (typeof (folderHandle as any).requestPermission === 'function') {
     const state = await (folderHandle as any).requestPermission({ mode: 'readwrite' })
     if (state === 'denied') throw new Error('没有写入该文件夹的权限')
@@ -405,5 +708,5 @@ export async function removeFolderFromAnalysisConfig(folderName: string): Promis
 }
 
 export function isFSASupported(): boolean {
-  return checkFSA()
+  return checkFSA() || isTauri()
 }

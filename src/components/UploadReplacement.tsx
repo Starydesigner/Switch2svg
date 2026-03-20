@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 import type { ReplacementItem } from '../types'
-import { saveReplacementFile } from '../utils/fsa'
+import { saveReplacementFile, type LiveFolderAccess } from '../utils/fsa'
 import './UploadReplacement.css'
 
 function getImageDimensions(file: File): Promise<{ width: number; height: number } | null> {
@@ -23,7 +23,7 @@ function getImageDimensions(file: File): Promise<{ width: number; height: number
 
 interface UploadReplacementProps {
   folderName: string
-  folderHandle?: FileSystemDirectoryHandle
+  folderAccess?: LiveFolderAccess
   sectionId: string
   sectionLabel: string
   onUploaded: (item: ReplacementItem) => void
@@ -32,7 +32,7 @@ interface UploadReplacementProps {
 
 export function UploadReplacement({
   folderName,
-  folderHandle,
+  folderAccess,
   sectionLabel,
   onUploaded,
   disabled,
@@ -44,7 +44,7 @@ export function UploadReplacement({
     e.preventDefault()
     e.stopPropagation()
     if (disabled) return
-    if (!folderHandle) {
+    if (!folderAccess) {
       alert('无法上传：当前文件夹未通过「选择文件夹」添加，没有写入权限。请先点击顶部「选择文件夹」选中该目录后再上传。')
       return
     }
@@ -57,7 +57,7 @@ export function UploadReplacement({
     // 注意：某些浏览器里 FileList 是 live 对象，先拷贝再清空 input，避免后续 files 被清空导致“无反应”
     const selectedFiles = Array.from(files)
     e.target.value = ''
-    if (!folderHandle) {
+    if (!folderAccess) {
       alert('无法上传：当前文件夹没有写入权限，请先通过「选择文件夹」添加该目录。')
       return
     }
@@ -76,7 +76,7 @@ export function UploadReplacement({
           const preferredName = selectedFiles.length > 1
             ? `${prefix}${nameWithoutExt}_${base}_${i}${ext}`
             : `${prefix}${file.name}`
-          const filename = await saveReplacementFile(folderName, file, preferredName, folderHandle)
+          const filename = await saveReplacementFile(folderName, file, preferredName, folderAccess)
           const dimensions = await getImageDimensions(file)
           const item: ReplacementItem = {
             id: `rep_${base}_${i}`,

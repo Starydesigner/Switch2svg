@@ -30,6 +30,7 @@ function serveStaticDir(prefix: string, dir: string) {
 }
 
 export default defineConfig({
+  base: './',
   plugins: [
     react(),
     {
@@ -62,6 +63,8 @@ export default defineConfig({
   root: '.',
   publicDir: 'public',
   server: {
+    port: 1420,
+    strictPort: true,
     fs: {
       allow: ['.', '..'],
     },
