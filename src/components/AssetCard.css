@@ -109,6 +109,20 @@
   font-weight: 500;
 }
 
+/* SVG 图标预览固定 36×36（栅格图仍占满 48×48 缩略区） */
+.asset-card-thumb .svg-tint-container {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+
+.asset-card-thumb .svg-tint-container img,
+.asset-card-thumb .svg-tint-container svg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .asset-card-thumb img {
   max-width: 100%;
   max-height: 100%;
@@ -118,6 +132,19 @@
 .asset-card-thumb .thumb-placeholder {
   font-size: 0.65rem;
   color: var(--text-muted, #999);
+}
+
+.asset-thumb-placeholder-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted, #8e8e9a);
+  opacity: 0.9;
+}
+
+.asset-thumb-placeholder-icon--large {
+  color: rgba(255, 255, 255, 0.85);
+  opacity: 1;
 }
 
 .asset-card-name {

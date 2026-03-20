@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react'
 import { Folder, FolderOpen, Save, Sparkles, Settings, X, Plus, ChevronDown, Search } from 'lucide-react'
 import type { FoldersManifest, AssetEntry } from './types'
-import { getAssetImageUrl } from './utils/assetUrl'
+import { assetHasImagePreview, getAssetImageUrl } from './utils/assetUrl'
 import {
   buildFormatOnlySections,
   buildDefaultSections,
@@ -10,6 +10,8 @@ import {
   type FolderCategoryConfig,
 } from './utils/categories'
 import { AssetGrid, moveAssetsToSection } from './components/AssetGrid'
+import { SvgImage } from './components/SvgImage'
+import { AssetThumbPlaceholder } from './components/AssetThumbPlaceholder'
 import { SectionOutline } from './components/SectionOutline'
 import {
   pickAnalysisFolderDirect,
@@ -24,6 +26,39 @@ import './App.css'
 
 const AI_CONFIG_KEY = 'switch2svg-ai-config'
 const THEME_KEY = 'switch2svg-theme'
+const SVG_TINT_KEY = 'switch2svg-svg-tint'
+const DEFAULT_SVG_TINT_COLOR = '#333333'
+
+export interface SvgTintConfig {
+  themeAdapt: boolean
+  customColor: string
+}
+
+function loadSvgTintConfig(): SvgTintConfig {
+  try {
+    const v = localStorage.getItem(SVG_TINT_KEY)
+    if (v) {
+      if (v === 'white') return { themeAdapt: true, customColor: '' }
+      if (v === 'black') return { themeAdapt: false, customColor: '#333333' }
+      const o = JSON.parse(v)
+      if (o && typeof o.themeAdapt === 'boolean') {
+        return {
+          themeAdapt: o.themeAdapt,
+          customColor: typeof o.customColor === 'string' ? o.customColor : '',
+        }
+      }
+    }
+  } catch (_) {}
+  return { themeAdapt: false, customColor: '' }
+}
+
+function parseHex(hex: string): string | null {
+  const h = hex.trim().replace(/^#/, '').replace(/\s/g, '')
+  if (!h) return null
+  if (/^[0-9A-Fa-f]{6}$/.test(h)) return '#' + h.toLowerCase()
+  if (/^[0-9A-Fa-f]{3}$/.test(h)) return '#' + h[0] + h[0] + h[1] + h[1] + h[2] + h[2]
+  return null
+}
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0.00 B'
@@ -96,6 +131,8 @@ function App() {
   const [showAIConfig, setShowAIConfig] = useState(false)
   const [aiConfig, setAIConfig] = useState<AIConfig>(loadAIConfig)
   const [theme, setTheme] = useState<'light' | 'dark'>(loadTheme)
+  const [svgTintConfig, setSvgTintConfig] = useState<SvgTintConfig>(loadSvgTintConfig)
+  const [showSvgTintModal, setShowSvgTintModal] = useState(false)
   /** 当前文件夹下各分组的替换图：sectionId -> ReplacementItem[]（可多张） */
   const [replacementsByFolderId, setReplacementsByFolderId] = useState<Record<string, Record<string, import('./types').ReplacementItem[]>>>({})
 
@@ -127,6 +164,21 @@ function App() {
       localStorage.setItem(THEME_KEY, theme)
     } catch (_) {}
   }, [theme])
+
+  const effectiveSvgTintColor = useMemo(() => {
+    if (svgTintConfig.themeAdapt) return theme === 'dark' ? '#ffffff' : '#333333'
+    return parseHex(svgTintConfig.customColor) || DEFAULT_SVG_TINT_COLOR
+  }, [svgTintConfig.themeAdapt, svgTintConfig.customColor, theme])
+
+  useLayoutEffect(() => {
+    document.documentElement.style.setProperty('--svg-tint-color', effectiveSvgTintColor)
+  }, [effectiveSvgTintColor])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SVG_TINT_KEY, JSON.stringify(svgTintConfig))
+    } catch (_) {}
+  }, [svgTintConfig])
 
   const allFolders = useMemo(() => {
     const fromManifest = (manifest?.folders ?? []).filter((f) => !removedFolderNames.has(f.name))
@@ -563,7 +615,7 @@ function App() {
   return (
     <div className="app">
       <header className="header">
-        <h1 className="title">Switch2svg</h1>
+        <h1 className="title">APP图标治理工具</h1>
         <div className="header-tabs-row">
           <nav className="tabs">
             {allFolders.map((f) => {
@@ -600,6 +652,16 @@ function App() {
             {addFolderLoading ? '读取中…' : '选择文件夹'}
           </button>
         </div>
+        <button
+          type="button"
+          className="svg-tint-btn"
+          onClick={() => setShowSvgTintModal(true)}
+          aria-label="SVG 改色设置"
+          title="SVG 改色"
+        >
+          <span className="svg-tint-btn-dot" style={{ backgroundColor: effectiveSvgTintColor }} />
+          SVG 改色
+        </button>
         <div className="theme-switch" role="group" aria-label="主题">
           <button
             type="button"
@@ -619,6 +681,51 @@ function App() {
           </button>
         </div>
       </header>
+
+      {showSvgTintModal && (
+        <div className="modal-overlay" onClick={() => setShowSvgTintModal(false)}>
+          <div className="modal svg-tint-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>SVG 改色</h3>
+            <label className="config-row config-row-switch">
+              <span className="config-label">跟随亮色/暗色适配</span>
+              <input
+                type="checkbox"
+                className="svg-tint-theme-adapt-checkbox"
+                checked={svgTintConfig.themeAdapt}
+                onChange={(e) => setSvgTintConfig((c) => ({ ...c, themeAdapt: e.target.checked }))}
+                aria-label="跟随亮色/暗色适配"
+              />
+            </label>
+            {svgTintConfig.themeAdapt && (
+              <p className="modal-hint svg-tint-hint">开启后：暗色主题下为 #ffffff，亮色主题下为 #333333。</p>
+            )}
+            {!svgTintConfig.themeAdapt && (
+              <label className="config-row">
+                <span className="config-label">自定义颜色</span>
+                <input
+                  type="text"
+                  className="modal-input svg-tint-hex-input"
+                  value={svgTintConfig.customColor}
+                  onChange={(e) => setSvgTintConfig((c) => ({ ...c, customColor: e.target.value }))}
+                  placeholder={DEFAULT_SVG_TINT_COLOR}
+                  aria-label="色号（如 #333333）"
+                />
+              </label>
+            )}
+            {!svgTintConfig.themeAdapt && (
+              <p className="modal-hint svg-tint-hint">
+                未输入时使用默认颜色 {DEFAULT_SVG_TINT_COLOR}。支持 #333333 或 #333 格式。
+              </p>
+            )}
+            <div className="modal-actions">
+              <button type="button" className="save-btn" onClick={() => setShowSvgTintModal(false)}>
+                <Save size={14} strokeWidth={2} />
+                保存设置
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showAIConfig && (
         <div className="modal-overlay" onClick={() => setShowAIConfig(false)}>
@@ -758,10 +865,15 @@ function App() {
                                             className="left-panel-search-result-check"
                                           />
                                           <div className="left-panel-search-result-thumb">
-                                            {asset.format !== 'lottie' ? (
-                                              <img src={getAssetImageUrl(asset)} alt="" />
-                                            ) : (
+                                            {asset.format === 'lottie' ? (
                                               <span className="thumb-placeholder">Lottie</span>
+                                            ) : !assetHasImagePreview(asset) ? (
+                                              <AssetThumbPlaceholder />
+                                            ) : (asset.format || '').toLowerCase() === 'svg' ||
+                                              (asset.path || '').toLowerCase().endsWith('.svg') ? (
+                                              <SvgImage src={getAssetImageUrl(asset)} alt="" />
+                                            ) : (
+                                              <img src={getAssetImageUrl(asset)} alt="" />
                                             )}
                                           </div>
                                           <div className="left-panel-search-result-info">

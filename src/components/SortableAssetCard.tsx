@@ -3,7 +3,9 @@ import { Check, GripVertical } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { AssetEntry } from '../types'
-import { getAssetImageUrl } from '../utils/assetUrl'
+import { assetHasImagePreview, getAssetImageUrl } from '../utils/assetUrl'
+import { AssetThumbPlaceholder } from './AssetThumbPlaceholder'
+import { SvgImage, isSvgFile } from './SvgImage'
 import './AssetCard.css'
 
 interface SortableAssetCardProps {
@@ -97,6 +99,28 @@ export function SortableAssetCard({ asset, isSelected, onSelect, onPreview }: So
       <div className="asset-card-thumb">
         {asset.format === 'lottie' ? (
           <span className="thumb-placeholder">Lottie</span>
+        ) : !assetHasImagePreview(asset) ? (
+          <AssetThumbPlaceholder />
+        ) : (isSvgFile(asset.path, asset.format) ? (
+          <SvgImage
+            src={getAssetImageUrl(asset)}
+            alt={asset.name}
+            loading="lazy"
+            onLoad={(e) => {
+              const img = e.currentTarget
+              if (img.naturalWidth && img.naturalHeight) {
+                setSize({ w: img.naturalWidth, h: img.naturalHeight })
+              }
+            }}
+            onError={(e) => {
+              const wrap = e.currentTarget.closest('.svg-tint-container') as HTMLElement
+              if (wrap) {
+                wrap.style.display = 'none'
+                const span = wrap.nextElementSibling as HTMLElement
+                if (span) span.style.display = 'inline'
+              }
+            }}
+          />
         ) : (
           <img
             src={getAssetImageUrl(asset)}
@@ -115,7 +139,7 @@ export function SortableAssetCard({ asset, isSelected, onSelect, onPreview }: So
               if (span) span.style.display = 'inline'
             }}
           />
-        )}
+        ))}
         <span className="thumb-placeholder" style={{ display: 'none' }}>?</span>
         <span className="asset-card-format-tag">{(asset.format || 'png').toUpperCase()}</span>
       </div>

@@ -45,6 +45,25 @@
   box-sizing: border-box;
 }
 
+/* SVG 内联注入后改色：勿对全部 path 同时强设 fill+stroke，否则会覆盖 fill="none" 或在纯填充图标上多出描边，看起来「描边变粗」 */
+/* .svg-no-tint：多色/渐变等由 SvgImage 检测后跳过，保留源文件颜色 */
+.svg-tint-container:not(.svg-no-tint) svg {
+  color: var(--svg-tint-color, currentColor);
+}
+.svg-tint-container:not(.svg-no-tint) svg [fill]:not([fill="none"]):not([fill="transparent"]) {
+  fill: var(--svg-tint-color, currentColor) !important;
+}
+.svg-tint-container:not(.svg-no-tint) svg [stroke]:not([stroke="none"]):not([stroke="0"]) {
+  stroke: var(--svg-tint-color, currentColor) !important;
+}
+/* 显式 currentColor 的走继承自上一行的 color */
+.svg-tint-container:not(.svg-no-tint) svg [fill="currentColor"] {
+  fill: var(--svg-tint-color, currentColor) !important;
+}
+.svg-tint-container:not(.svg-no-tint) svg [stroke="currentColor"] {
+  stroke: var(--svg-tint-color, currentColor) !important;
+}
+
 .app {
   min-height: 100vh;
   display: flex;
@@ -79,6 +98,39 @@
   gap: var(--space-md);
   flex: 1;
   min-width: 0;
+}
+
+.svg-tint-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.svg-tint-btn:hover {
+  color: var(--text);
+  background: var(--bg-page);
+  border-color: var(--border-focus, var(--border));
+}
+.svg-tint-btn-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  box-sizing: border-box;
+}
+[data-theme="dark"] .svg-tint-btn-dot {
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .theme-switch {
@@ -572,6 +624,19 @@
   overflow: hidden;
 }
 
+.left-panel-search-result-thumb .svg-tint-container {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+
+.left-panel-search-result-thumb .svg-tint-container img,
+.left-panel-search-result-thumb .svg-tint-container svg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .left-panel-search-result-thumb img {
   max-width: 100%;
   max-height: 100%;
@@ -899,4 +964,24 @@
 .config-label {
   font-size: 13px;
   color: var(--text-secondary);
+}
+
+.config-row-switch {
+  flex-direction: row;
+  align-items: center;
+  cursor: pointer;
+}
+.svg-tint-theme-adapt-checkbox {
+  width: 18px;
+  height: 18px;
+  margin: 0 0 0 auto;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+.svg-tint-modal .svg-tint-hint {
+  margin-top: -8px;
+  margin-bottom: var(--space-md);
+}
+.svg-tint-modal .modal-actions {
+  margin-top: var(--space-md);
 }

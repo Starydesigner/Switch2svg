@@ -1,15 +1,24 @@
 import type { AnalysisFoldersConfig, AssetEntry, FolderManifest, ReplacementItem } from '../types'
 import type { CategorySection } from './categories'
 
-const FLAT_EXTS = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.pdf', '.json']
+/** 与 Svg_replace 写入目录名一致；分析时整棵子树不参与素材统计与展示 */
+const SVG_REPLACE_DIR_NAME = 'Svg_replace'
+
+/** 可生成 blob URL 在浏览器中直接预览的平面文件扩展名 */
+const PREVIEW_IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'])
+
 function inferFormat(filename: string): string {
-  const ext = filename.split('.').pop()?.toLowerCase() ?? ''
+  const lower = filename.toLowerCase()
+  const dot = lower.lastIndexOf('.')
+  if (dot <= 0 || dot === lower.length - 1) return 'file'
+  const ext = lower.slice(dot + 1)
   if (ext === 'pdf') return 'pdf'
-  if (ext === 'json') return 'lottie'
+  if (ext === 'json') return 'json'
   if (ext === 'webp') return 'webp'
   if (ext === 'gif') return 'gif'
   if (ext === 'jpg' || ext === 'jpeg') return 'jpg'
-  return ext || 'png'
+  if (ext === 'svg') return 'svg'
+  return ext || 'file'
 }
 
 const DATA_DIR = 'switch2svg-data'
@@ -29,14 +38,14 @@ async function findSvgReplaceDirectory(
   root: FileSystemDirectoryHandle
 ): Promise<FileSystemDirectoryHandle | null> {
   try {
-    return await root.getDirectoryHandle('Svg_replace', { create: false })
+    return await root.getDirectoryHandle(SVG_REPLACE_DIR_NAME, { create: false })
   } catch (_) {}
 
   async function walk(dir: FileSystemDirectoryHandle): Promise<FileSystemDirectoryHandle | null> {
     for await (const [name, entry] of (dir as any).entries()) {
       if (entry.kind !== 'directory') continue
       const child = entry as FileSystemDirectoryHandle
-      if (name === 'Svg_replace') return child
+      if (name === SVG_REPLACE_DIR_NAME) return child
       const found = await walk(child)
       if (found) return found
     }
@@ -60,7 +69,7 @@ async function getSvgReplaceForWrite(
   } catch (_) {
     /* 递归查找失败时使用根下 Svg_replace */
   }
-  return await root.getDirectoryHandle('Svg_replace', { create: true })
+  return await root.getDirectoryHandle(SVG_REPLACE_DIR_NAME, { create: true })
 }
 
 /**
@@ -173,6 +182,18 @@ export async function readFolderContentFromHandle(
   folderId: string
 ): Promise<FolderManifest> {
   const assets: AssetEntry[] = []
+  const usedIds = new Set<string>()
+
+  function ensureUniqueId(baseId: string): string {
+    let id = baseId
+    let n = 0
+    while (usedIds.has(id)) {
+      n += 1
+      id = `${baseId}--${n}`
+    }
+    usedIds.add(id)
+    return id
+  }
 
   async function walk(
     dir: FileSystemDirectoryHandle,
@@ -181,66 +202,40 @@ export async function readFolderContentFromHandle(
     for await (const [name, handle] of (dir as any).entries()) {
       const rel = relPrefix ? `${relPrefix}/${name}` : name
       if (handle.kind === 'directory') {
-        if (name.endsWith('.imageset')) {
-          try {
-            const contentsHandle = await handle.getFileHandle('Contents.json', { create: false })
-            const file = await contentsHandle.getFile()
-            const contents = JSON.parse(await file.text()) as { images?: { scale?: string; filename: string }[] }
-            const images = (contents.images || [])
-              .filter((img) => img.filename)
-              .map((img) => ({ scale: img.scale, filename: img.filename }))
-            const firstFile = images[0]?.filename
-            const format = firstFile ? inferFormat(firstFile) : 'png'
-            const assetName = name.replace(/\.imageset$/, '')
-            let displayUrl: string | undefined
-            let size: number | undefined
-            if (firstFile) {
-              try {
-                const imgHandle = await handle.getFileHandle(firstFile, { create: false })
-                const imgFile = await imgHandle.getFile()
-                displayUrl = URL.createObjectURL(imgFile)
-                size = imgFile.size
-              } catch (_) {}
-            }
-            const uniqueId = `${folderId}-${rel.replace(/[/\\]/g, '_')}`
-            assets.push({
-              id: uniqueId,
-              name: assetName,
-              path: rel,
-              format,
-              images,
-              displayUrl,
-              size,
-            })
-          } catch (_) {}
-        } else {
-          await walk(handle as FileSystemDirectoryHandle, rel)
+        if (name === SVG_REPLACE_DIR_NAME) {
+          continue
         }
+        /** .imageset 按普通目录递归：内部每个文件各一条素材（与 Xcode 资产目录「合一」语义不同） */
+        await walk(handle as FileSystemDirectoryHandle, rel)
       } else if (handle.kind === 'file') {
-        const ext = name.includes('.') ? '.' + name.split('.').pop()!.toLowerCase() : ''
-        if (FLAT_EXTS.includes(ext)) {
-          const format = inferFormat(name)
-          const assetName = name.replace(/\.[^.]+$/, '')
-          let displayUrl: string | undefined
-          let size: number | undefined
-          try {
-            const file = await (handle as FileSystemFileHandle).getFile()
-            size = file.size
-            if (['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(ext)) {
-              displayUrl = URL.createObjectURL(file)
-            }
-          } catch (_) {}
-          const uniqueId = `${folderId}-${rel.replace(/[/\\]/g, '_')}`
-          assets.push({
-            id: uniqueId,
-            name: assetName,
-            path: rel,
-            format,
-            images: [{ filename: name }],
-            displayUrl,
-            size,
-          })
-        }
+        const ext =
+          name.includes('.') && name.lastIndexOf('.') > 0
+            ? name.slice(name.lastIndexOf('.')).toLowerCase()
+            : ''
+        const format = inferFormat(name)
+        const baseName = ext ? name.slice(0, -ext.length) : name
+        const assetName = baseName || name
+        let displayUrl: string | undefined
+        let size: number | undefined
+        try {
+          const file = await (handle as FileSystemFileHandle).getFile()
+          size = file.size
+          if (PREVIEW_IMAGE_EXTS.has(ext)) {
+            displayUrl = URL.createObjectURL(file)
+          }
+        } catch (_) {}
+        const baseId = `${folderId}-${rel.replace(/[/\\]/g, '_')}`
+        const uniqueId = ensureUniqueId(baseId)
+        assets.push({
+          id: uniqueId,
+          name: assetName,
+          path: rel,
+          format,
+          images: [{ filename: name }],
+          displayUrl,
+          imagePreviewable: !!displayUrl,
+          size,
+        })
       }
     }
   }
@@ -308,6 +303,7 @@ export async function loadReplacementPreviewsFromHandle(
         const fileHandle = await svgReplace.getFileHandle(filename, { create: false })
         const file = await fileHandle.getFile()
         item.previewUrl = URL.createObjectURL(file)
+        item.isSvg = file.type === 'image/svg+xml' || /\.svg$/i.test(filename)
         item.size = file.size
       } catch (_) {
         /* 文件不存在或无法读取时仅保留 filename，无预览 */

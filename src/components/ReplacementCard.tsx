@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import { useDraggable } from '@dnd-kit/core'
 import type { ReplacementItem } from '../types'
+import { SvgImage, isSvgFile } from './SvgImage'
 import './ReplacementCard.css'
 
 const REP_PREFIX = 'rep_'
@@ -27,9 +28,32 @@ interface ReplacementCardProps {
 
 export function ReplacementCard({ sectionId, item, onDelete }: ReplacementCardProps) {
   const [imgError, setImgError] = useState(false)
+  const [detectedSvg, setDetectedSvg] = useState(false)
   useEffect(() => {
     if (item.previewUrl) setImgError(false)
   }, [item.previewUrl])
+  useEffect(() => {
+    if (!item.previewUrl) {
+      setDetectedSvg(false)
+      return
+    }
+    if (item.isSvg || isSvgFile(item.filename)) {
+      setDetectedSvg(true)
+      return
+    }
+    let cancelled = false
+    fetch(item.previewUrl)
+      .then((r) => r.blob())
+      .then((blob) => {
+        if (!cancelled) setDetectedSvg(blob.type === 'image/svg+xml')
+      })
+      .catch(() => {
+        if (!cancelled) setDetectedSvg(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [item.previewUrl, item.filename, item.isSvg])
   const dragId = getReplacementDragId(sectionId, item.id)
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: dragId,
@@ -49,11 +73,19 @@ export function ReplacementCard({ sectionId, item, onDelete }: ReplacementCardPr
     >
       <div className="replacement-card-thumb">
         {item.previewUrl && !imgError ? (
-          <img
-            src={item.previewUrl}
-            alt=""
-            onError={() => setImgError(true)}
-          />
+          (item.isSvg || isSvgFile(item.filename) || detectedSvg) ? (
+            <SvgImage
+              src={item.previewUrl}
+              alt=""
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <img
+              src={item.previewUrl}
+              alt=""
+              onError={() => setImgError(true)}
+            />
+          )
         ) : (
           <span className="replacement-card-placeholder">{item.filename}</span>
         )}

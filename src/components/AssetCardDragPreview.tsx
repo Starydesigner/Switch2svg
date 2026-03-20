@@ -1,5 +1,7 @@
 import type { AssetEntry } from '../types'
-import { getAssetImageUrl } from '../utils/assetUrl'
+import { assetHasImagePreview, getAssetImageUrl } from '../utils/assetUrl'
+import { AssetThumbPlaceholder } from './AssetThumbPlaceholder'
+import { SvgImage, isSvgFile } from './SvgImage'
 import './AssetCard.css'
 
 interface AssetCardDragPreviewProps {
@@ -13,12 +15,12 @@ export function AssetCardDragPreview({ asset }: AssetCardDragPreviewProps) {
       <div className="asset-card-thumb">
         {asset.format === 'lottie' ? (
           <span className="thumb-placeholder">Lottie</span>
+        ) : !assetHasImagePreview(asset) ? (
+          <AssetThumbPlaceholder />
+        ) : isSvgFile(asset.path, asset.format) ? (
+          <SvgImage src={getAssetImageUrl(asset)} alt={asset.name} draggable={false} />
         ) : (
-          <img
-            src={getAssetImageUrl(asset)}
-            alt={asset.name}
-            draggable={false}
-          />
+          <img src={getAssetImageUrl(asset)} alt={asset.name} draggable={false} />
         )}
         <span className="thumb-placeholder" style={{ display: 'none' }}>?</span>
         <span className="asset-card-format-tag">{(asset.format || 'png').toUpperCase()}</span>

@@ -198,6 +198,12 @@
   object-fit: contain;
 }
 
+.asset-preview-content .svg-tint-container svg {
+  max-width: 90vw;
+  max-height: calc(90vh - 48px);
+  object-fit: contain;
+}
+
 .asset-preview-name {
   color: #fff;
   font-size: 14px;
@@ -206,4 +212,32 @@
   text-align: center;
   line-height: 1.4;
   padding: 0 8px;
+}
+
+.asset-preview-path {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 12px;
+  max-width: 90vw;
+  word-break: break-all;
+  text-align: center;
+  line-height: 1.35;
+  padding: 0 12px;
+}
+
+.asset-preview-file-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  min-height: 120px;
+  justify-content: center;
+}
+
+.asset-preview-hint {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 13px;
+  text-align: center;
+  max-width: 320px;
+  line-height: 1.4;
 }

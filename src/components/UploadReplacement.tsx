@@ -81,6 +81,7 @@ export function UploadReplacement({
           const item: ReplacementItem = {
             id: `rep_${base}_${i}`,
             filename,
+            isSvg: file.type === 'image/svg+xml' || /\.svg$/i.test(file.name),
             previewUrl,
             width: dimensions?.width,
             height: dimensions?.height,

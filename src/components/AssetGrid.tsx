@@ -12,7 +12,9 @@ import {
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import type { AssetEntry, ReplacementItem } from '../types'
 import type { CategorySection } from '../utils/categories'
-import { getAssetImageUrl } from '../utils/assetUrl'
+import { assetHasImagePreview, getAssetImageUrl } from '../utils/assetUrl'
+import { SvgImage, isSvgFile } from './SvgImage'
+import { AssetThumbPlaceholder } from './AssetThumbPlaceholder'
 import { parseReplacementDragId } from './ReplacementCard'
 import { SectionDropArea } from './SectionDropArea'
 import { AssetCardDragPreview } from './AssetCardDragPreview'
@@ -418,7 +420,8 @@ export function AssetGrid({
       </DragOverlay>
       {previewAssetId && (() => {
         const asset = assetsById.get(previewAssetId)
-        if (!asset || asset.format === 'lottie') return null
+        if (!asset) return null
+        const canImage = assetHasImagePreview(asset) && asset.format !== 'lottie'
         return (
           <div
             className="asset-preview-overlay"
@@ -428,13 +431,33 @@ export function AssetGrid({
             onClick={() => setPreviewAssetId(null)}
           >
             <div className="asset-preview-content" onClick={(e) => e.stopPropagation()}>
-              <img
-                src={getAssetImageUrl(asset)}
-                alt={asset.name}
-                className="asset-preview-img"
-                draggable={false}
-              />
+              {asset.format === 'lottie' ? (
+                <div className="asset-preview-file-fallback">
+                  <span className="thumb-placeholder">Lottie</span>
+                  <p className="asset-preview-hint">浏览器内无法预览 Lottie JSON</p>
+                </div>
+              ) : !canImage ? (
+                <div className="asset-preview-file-fallback">
+                  <AssetThumbPlaceholder title="无法预览此格式" large />
+                  <p className="asset-preview-hint">此格式无法在浏览器内预览，已计入素材清单</p>
+                </div>
+              ) : isSvgFile(asset.path, asset.format) ? (
+                <SvgImage
+                  src={getAssetImageUrl(asset)}
+                  alt={asset.name}
+                  className="asset-preview-img"
+                  draggable={false}
+                />
+              ) : (
+                <img
+                  src={getAssetImageUrl(asset)}
+                  alt={asset.name}
+                  className="asset-preview-img"
+                  draggable={false}
+                />
+              )}
               <div className="asset-preview-name" title={asset.name}>{asset.name}</div>
+              <div className="asset-preview-path" title={asset.path}>{asset.path}</div>
             </div>
           </div>
         )

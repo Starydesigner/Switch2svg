@@ -13,6 +13,8 @@ export interface AssetEntry {
   images: AssetImage[]
   /** 由 FSA 实时读取时生成的展示用 URL，优先于 path 用于预览 */
   displayUrl?: string
+  /** FSA 扫描时：是否可用图片/SVG 预览；false 时卡片显示固定文件图标 */
+  imagePreviewable?: boolean
   /** 文件大小（字节），由 FSA 读取时填充 */
   size?: number
 }
@@ -43,6 +45,8 @@ export interface AnalysisFoldersConfig {
 export interface ReplacementItem {
   id: string
   filename: string
+  /** 是否为 SVG（用于改色渲染；无后缀文件名时也可准确识别） */
+  isSvg?: boolean
   previewUrl?: string
   width?: number
   height?: number

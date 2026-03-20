@@ -1,0 +1,15 @@
+/* 包裹 img，注入后为 svg；保证尺寸与布局与单张图片一致 */
+.svg-tint-container {
+  display: inline-block;
+  line-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.svg-tint-container img,
+.svg-tint-container svg {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  vertical-align: middle;
+}

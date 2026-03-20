@@ -21,7 +21,7 @@
   box-shadow: var(--shadow, 0 2px 12px rgba(0, 0, 0, 0.06));
 }
 
-/* 与左侧素材预览 .asset-card-thumb 保持一致 */
+/* 与左侧素材预览 .asset-card-thumb 保持一致；SVG 内容区 36×36 */
 .replacement-card-thumb {
   width: 48px;
   height: 48px;
@@ -32,6 +32,20 @@
   border-radius: 4px;
   overflow: hidden;
   margin-bottom: 4px;
+}
+
+.replacement-card-thumb .svg-tint-container {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+
+/* 占满 36×36 视口，等比放大（仅 max-* 时仍会保持 24 等固有尺寸） */
+.replacement-card-thumb .svg-tint-container img,
+.replacement-card-thumb .svg-tint-container svg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .replacement-card-thumb img {
