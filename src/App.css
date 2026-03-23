@@ -65,9 +65,11 @@
 }
 
 .app {
-  min-height: 100vh;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: var(--bg-page);
   font-family: var(--font);
   font-size: 14px;
@@ -76,11 +78,11 @@
   -webkit-font-smoothing: antialiased;
 }
 
-/* Header：吸顶 */
+/* Header：吸顶；层级高于主区内 sticky 条（如左栏工具行 z-index:11），避免下拉被遮挡 */
 .header {
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 200;
   flex-shrink: 0;
   background: var(--bg-surface);
   padding: var(--space-md) var(--space-xl);
@@ -90,6 +92,7 @@
   align-items: center;
   gap: var(--space-xl);
   flex-wrap: wrap;
+  isolation: isolate;
 }
 
 .header-tabs-row {
@@ -125,7 +128,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow);
-  z-index: 30;
+  z-index: 300;
 }
 
 .header-add-project-option {
@@ -493,11 +496,11 @@
   transform: translateX(-50%);
 }
 
-/* 按钮行：吸顶（在 .main 内滚动时贴在顶部），按钮垂直居中 */
+/* 工具行：在左栏内吸顶（若出现外层滚动时仍贴在左栏顶部），与顶栏 header 分层 */
 .left-panel-sticky-bar {
   position: sticky;
   top: 0;
-  z-index: 9;
+  z-index: 11;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -505,15 +508,35 @@
   padding: var(--space-md) var(--space-xl);
   background: var(--bg-page);
   border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
 }
 
-/* 仅作为左右分栏容器，本身不滚动，避免右侧滚动带动左侧 */
+/* 左右分栏：容器不滚动；左列大纲、右列卡片各自独立滚动 */
 .left-panel-body {
   flex: 1;
   min-height: 0;
   display: flex;
+  flex-direction: row;
   overflow: hidden;
   align-items: stretch;
+}
+
+/* 大纲列：高度仅随左栏可视区（不随右侧列表内容增高），内部 aside 填满本列后由 .outline-list 滚动 */
+.left-panel-outline-column {
+  flex: 0 0 204px;
+  width: 204px;
+  min-width: 180px;
+  max-width: 240px;
+  min-height: 0;
+  max-height: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+  align-self: stretch;
+  padding: var(--space-md) 0 var(--space-md) var(--space-md);
+  box-sizing: border-box;
 }
 
 .left-panel-main {
@@ -795,30 +818,30 @@
   color: var(--text-muted);
 }
 
-/* 保存按钮左侧：原素材/替换后大小统计，与按钮同列垂直居中 */
-.left-panel-sticky-stats {
-  display: flex;
-  align-items: center;
-  gap: var(--space-lg);
-  margin-left: auto;
-  margin-right: var(--space-lg);
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.left-panel-sticky-stats-item {
-  white-space: nowrap;
-}
-
-.left-panel-sticky-stats-item strong {
-  color: var(--text-secondary);
-  font-weight: 600;
-}
-
 .left-panel-sticky-right {
   display: flex;
   align-items: center;
-  gap: var(--space);
+  gap: var(--space-md);
+  margin-left: auto;
+}
+
+.left-panel-hide-non-image-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.left-panel-hide-non-image-label input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .left-panel-sticky-divider {

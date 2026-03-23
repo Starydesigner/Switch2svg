@@ -1,4 +1,4 @@
-import { FolderOpen, Layers, ArrowRight, Palette } from 'lucide-react'
+import { FolderOpen, Layers, ArrowRight, Palette, Link2 } from 'lucide-react'
 import './WelcomeGuide.css'
 
 interface WelcomeGuideProps {
@@ -12,7 +12,7 @@ export function WelcomeGuide({ onPickFolder, picking }: WelcomeGuideProps) {
       <div className="welcome-guide__intro">
         <h2 className="welcome-guide__title">欢迎使用</h2>
         <p className="welcome-guide__lead">
-          集中查看、分组与替换 App 工程中的图标与图片资源，并生成可复用的替换配置。
+          浏览、分组与替换工程里的图标与图片；支持<strong>本地文件夹</strong>与<strong>图床直链</strong>，配置可写回项目。
         </p>
         <button
           type="button"
@@ -37,14 +37,23 @@ export function WelcomeGuide({ onPickFolder, picking }: WelcomeGuideProps) {
             <div className="welcome-viz-folder">
               <Layers size={22} strokeWidth={2} />
             </div>
+            <span className="welcome-viz-link-badge" aria-hidden>
+              <Link2 size={18} strokeWidth={2} />
+            </span>
           </div>
           <h3 id="welcome-block-1" className="welcome-card__heading">
             工具能做什么
           </h3>
           <ul className="welcome-card__list">
-            <li>递归浏览所选目录下的图片、SVG 等资源，按分组卡片展示。</li>
-            <li>为分组配置替换图或删除/保留策略，估算包体变化。</li>
-            <li>将分组与映射保存到目录内 <code>Svg_replace/config.json</code>，便于版本协作。</li>
+            <li>
+              <strong>本地</strong>：选文件夹，递归展示图片 / SVG / Lottie 等，卡片里可拖拽分组。
+            </li>
+            <li>
+              <strong>图床</strong>：「添加项目」里粘贴直链（多行或 JSON），分组、预览与本地一致；标签为链式图标。
+            </li>
+            <li>
+              替换图与配置进 <code>Svg_replace/</code>；图床列表进根目录 <code>switch2svg-remote-assets.json</code>，重开自动恢复。
+            </li>
           </ul>
         </section>
 
@@ -69,9 +78,11 @@ export function WelcomeGuide({ onPickFolder, picking }: WelcomeGuideProps) {
             推荐使用方式
           </h3>
           <ol className="welcome-card__list welcome-card__list--ordered">
-            <li>点击上方或本页的「选择文件夹」，选中包含素材的分析目录（如某平台 res 根目录）。</li>
-            <li>在左侧大纲与右侧卡片中调整分组；需要时上传替换图或使用「自动语义分组」。</li>
-            <li>使用「保存到项目」或自动保存，将结果写入 <code>Svg_replace</code>；下次再选同一目录会自动载入配置。</li>
+            <li>
+              <strong>本地</strong>：点「选择文件夹」打开资源目录；<strong>图床</strong>：「添加项目」→ 粘贴链接（首次保存需<strong>桌面版</strong>选父目录）。
+            </li>
+            <li>左侧调分组，右侧整理卡片；可上传替换图或用「自动语义分组」。</li>
+            <li>保存后下次再选同一文件夹，分组与图床列表会自动载入。</li>
           </ol>
         </section>
 
@@ -91,14 +102,9 @@ export function WelcomeGuide({ onPickFolder, picking }: WelcomeGuideProps) {
           </h3>
           <ul className="welcome-card__list">
             <li>
-              载入资源后，适合单色化的 <strong>线稿类 SVG</strong> 预览会按全局色号统一渲染 fill / stroke，方便在明暗背景下核对观感。
+              单色<strong>线稿 SVG</strong>预览可统一改 fill / stroke；顶栏 <strong>SVG 改色</strong> 里可选随主题或自定义色，设置会记住。
             </li>
-            <li>
-              点击顶栏的 <strong>SVG 改色</strong>（色块 + 文案）：可开启「随主题适配」（亮/暗各一套默认色），或关闭后输入自定义十六进制颜色；设置会保存到本地。
-            </li>
-            <li>
-              <strong>多色、渐变、图案填充或含 CSS 变量</strong> 的 SVG 会自动跳过改色，保持文件原有配色，避免破坏设计。
-            </li>
+            <li>多色、渐变等复杂 SVG 会自动跳过改色，避免破坏原稿。</li>
           </ul>
         </section>
       </div>

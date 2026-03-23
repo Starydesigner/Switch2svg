@@ -8,7 +8,8 @@ import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(__dirname, '..')
-const outPath = path.join(projectRoot, 'public', 'assets-manifest.json')
+const outPathPublic = path.join(projectRoot, 'public', 'assets-manifest.json')
+const outPathSrc = path.join(projectRoot, 'src', 'assets-manifest.json')
 const analysisFoldersPath = path.join(projectRoot, 'switch2svg-data', 'analysis-folders.json')
 
 /** @typedef {{ id: string, name: string, path: string, format: string, images: { scale?: string, filename: string }[] }} AssetEntry */
@@ -107,9 +108,11 @@ function main() {
   const manifest = { folders }
   const publicDir = path.join(projectRoot, 'public')
   if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true })
-  fs.writeFileSync(outPath, JSON.stringify(manifest, null, 2), 'utf8')
+  const json = JSON.stringify(manifest, null, 2)
+  fs.writeFileSync(outPathPublic, json, 'utf8')
+  fs.writeFileSync(outPathSrc, json, 'utf8')
   const total = folders.reduce((s, f) => s + f.assets.length, 0)
-  console.log(`Wrote ${outPath}: ${folders.length} folder(s), ${total} assets`)
+  console.log(`Wrote ${outPathPublic} & ${outPathSrc}: ${folders.length} folder(s), ${total} assets`)
 }
 
 main()

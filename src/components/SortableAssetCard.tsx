@@ -3,7 +3,12 @@ import { Check, GripVertical } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { AssetEntry } from '../types'
-import { assetHasImagePreview, getAssetImageUrl } from '../utils/assetUrl'
+import {
+  assetHasImagePreview,
+  isRemoteHttpThumbnailUrl,
+  remoteHttpImageProps,
+} from '../utils/assetUrl'
+import { useRemotePreviewSrc } from '../utils/remoteHttpPreview'
 import { AssetThumbPlaceholder } from './AssetThumbPlaceholder'
 import { SvgImage, isSvgFile } from './SvgImage'
 import './AssetCard.css'
@@ -43,6 +48,9 @@ export function SortableAssetCard({ asset, isSelected, onSelect, onPreview }: So
     if ((e.target as HTMLElement).closest('.asset-card-drag-handle')) return
     onPreview?.(asset)
   }
+
+  const { src: thumbSrc, pending: thumbPending, failed: thumbFailed } = useRemotePreviewSrc(asset)
+  const remoteHttpThumb = isRemoteHttpThumbnailUrl(asset.displayUrl || thumbSrc)
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === ' ') {
@@ -101,11 +109,16 @@ export function SortableAssetCard({ asset, isSelected, onSelect, onPreview }: So
           <span className="thumb-placeholder">Lottie</span>
         ) : !assetHasImagePreview(asset) ? (
           <AssetThumbPlaceholder />
+        ) : thumbPending ? (
+          <AssetThumbPlaceholder />
+        ) : thumbFailed ? (
+          <span className="thumb-placeholder">?</span>
         ) : (isSvgFile(asset.path, asset.format) ? (
           <SvgImage
-            src={getAssetImageUrl(asset)}
+            src={thumbSrc}
             alt={asset.name}
-            loading="lazy"
+            {...remoteHttpImageProps(asset.displayUrl || thumbSrc)}
+            loading={remoteHttpThumb ? 'eager' : 'lazy'}
             onLoad={(e) => {
               const img = e.currentTarget
               if (img.naturalWidth && img.naturalHeight) {
@@ -123,9 +136,10 @@ export function SortableAssetCard({ asset, isSelected, onSelect, onPreview }: So
           />
         ) : (
           <img
-            src={getAssetImageUrl(asset)}
+            src={thumbSrc}
             alt={asset.name}
-            loading="lazy"
+            {...remoteHttpImageProps(asset.displayUrl || thumbSrc)}
+            loading={remoteHttpThumb ? 'eager' : 'lazy'}
             onLoad={(e) => {
               const img = e.currentTarget
               if (img.naturalWidth && img.naturalHeight) {

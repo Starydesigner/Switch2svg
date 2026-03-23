@@ -1,3 +1,4 @@
+import type { ImgHTMLAttributes } from 'react'
 import type { AssetEntry } from '../types'
 
 const BASE = ''
@@ -24,6 +25,32 @@ export function isHttpImageAsset(asset: AssetEntry): boolean {
   return /^https?:\/\//i.test(u)
 }
 
+const IMAGE_LISTING_FORMATS = new Set([
+  'png',
+  'jpg',
+  'jpeg',
+  'webp',
+  'gif',
+  'svg',
+  'bmp',
+  'ico',
+  'avif',
+  'heic',
+  'heif',
+  'tif',
+  'tiff',
+])
+
+/** 网格/搜索中视为「图片类」；勾选「隐藏非图片」时保留（排除 json、pdf、lottie 等） */
+export function isImageListingAsset(asset: AssetEntry): boolean {
+  if (isHttpImageAsset(asset)) return true
+  if (asset.imagePreviewable === false) return false
+  const f = (asset.format || '').toLowerCase()
+  if (IMAGE_LISTING_FORMATS.has(f)) return true
+  if (asset.imagePreviewable === true) return true
+  return false
+}
+
 /** 多选复制到剪贴板：图床模式优先写 https 地址，否则写「名称.扩展名」 */
 export function buildSelectedAssetsClipboardText(
   selectedIds: Iterable<string>,
@@ -43,6 +70,18 @@ export function buildSelectedAssetsClipboardText(
     lines.push(a.format ? `${a.name}.${a.format}` : a.name)
   }
   return lines.filter(Boolean).join('\n')
+}
+
+/** 缩略图/预览 URL 是否为 http(s) 直链（Tauri WebView 下应对其避免 native lazy 等兼容问题） */
+export function isRemoteHttpThumbnailUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url.trim())
+}
+
+/** 远程 http(s) 缩略图：避免向图床发送 tauri.localhost 来源，减少防盗链误判 */
+export function remoteHttpImageProps(
+  src: string
+): Pick<ImgHTMLAttributes<HTMLImageElement>, 'referrerPolicy'> {
+  return isRemoteHttpThumbnailUrl(src) ? { referrerPolicy: 'no-referrer' } : {}
 }
 
 export function getAssetImageUrl(asset: AssetEntry): string {

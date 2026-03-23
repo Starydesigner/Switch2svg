@@ -279,33 +279,61 @@ function normalizeStoredRemoteAsset(a: AssetEntry): AssetEntry {
   }
 }
 
-async function loadRemoteAssetsFromManifestTauri(rootPath: string): Promise<AssetEntry[]> {
+type RemoteAssetsSidecarParsed = {
+  version?: number
+  kind?: string
+  assets?: unknown[]
+}
+
+function parseRemoteAssetsSidecar(text: string): {
+  assets: AssetEntry[]
+  sourceKind?: 'remote-bed'
+} {
+  try {
+    const parsed = JSON.parse(text) as RemoteAssetsSidecarParsed
+    const raw = Array.isArray(parsed.assets) ? parsed.assets : []
+    const assets = raw.map((x) => normalizeStoredRemoteAsset(x as AssetEntry))
+    if (parsed.kind === 'remote-bed') {
+      return { assets, sourceKind: 'remote-bed' }
+    }
+    if (
+      assets.length > 0 &&
+      assets.every((a) => isHttpDisplayUrl(a.displayUrl))
+    ) {
+      return { assets, sourceKind: 'remote-bed' }
+    }
+    return { assets }
+  } catch {
+    return { assets: [] }
+  }
+}
+
+async function loadRemoteAssetsFromManifestTauri(rootPath: string): Promise<{
+  assets: AssetEntry[]
+  sourceKind?: 'remote-bed'
+}> {
   const { join } = await import('@tauri-apps/api/path')
   const { readTextFile, exists } = await import('@tauri-apps/plugin-fs')
   const p = await join(normalizeTauriRootPath(rootPath), REMOTE_ASSETS_FILE)
-  if (!(await exists(p))) return []
+  if (!(await exists(p))) return { assets: [] }
   try {
     const text = await readTextFile(p)
-    const parsed = JSON.parse(text) as { assets?: AssetEntry[] }
-    if (!Array.isArray(parsed.assets)) return []
-    return parsed.assets.map((x) => normalizeStoredRemoteAsset(x))
+    return parseRemoteAssetsSidecar(text)
   } catch {
-    return []
+    return { assets: [] }
   }
 }
 
 async function loadRemoteAssetsFromManifestHandle(
   folderHandle: FileSystemDirectoryHandle
-): Promise<AssetEntry[]> {
+): Promise<{ assets: AssetEntry[]; sourceKind?: 'remote-bed' }> {
   try {
     const fh = await folderHandle.getFileHandle(REMOTE_ASSETS_FILE, { create: false })
     const file = await fh.getFile()
     const text = await file.text()
-    const parsed = JSON.parse(text) as { assets?: AssetEntry[] }
-    if (!Array.isArray(parsed.assets)) return []
-    return parsed.assets.map((x) => normalizeStoredRemoteAsset(x))
+    return parseRemoteAssetsSidecar(text)
   } catch {
-    return []
+    return { assets: [] }
   }
 }
 
@@ -316,7 +344,11 @@ async function writeRemoteAssetsSidecar(
   if (!remoteSourceAssets?.length) return
   const httpAssets = remoteSourceAssets.filter((a) => isHttpDisplayUrl(a.displayUrl))
   if (httpAssets.length === 0) return
-  const body = JSON.stringify({ version: 1, assets: httpAssets }, null, 2)
+  const body = JSON.stringify(
+    { version: 2, kind: 'remote-bed' as const, assets: httpAssets },
+    null,
+    2
+  )
   if (access.kind === 'tauri') {
     const { join } = await import('@tauri-apps/api/path')
     const { writeFile } = await import('@tauri-apps/plugin-fs')
@@ -506,13 +538,18 @@ export async function readFolderContentFromHandle(
   }
 
   const remoteListed = await loadRemoteAssetsFromManifestHandle(folderHandle)
-  for (const a of remoteListed) {
+  for (const a of remoteListed.assets) {
     usedIds.add(a.id)
     assets.push(a)
   }
 
   await walk(folderHandle, '')
-  return { id: folderId, name: folderName, assets }
+  return {
+    id: folderId,
+    name: folderName,
+    assets,
+    ...(remoteListed.sourceKind ? { sourceKind: remoteListed.sourceKind } : {}),
+  }
 }
 
 async function readFolderContentFromTauriRoot(
@@ -592,13 +629,18 @@ async function readFolderContentFromTauriRoot(
   }
 
   const remoteListed = await loadRemoteAssetsFromManifestTauri(root)
-  for (const a of remoteListed) {
+  for (const a of remoteListed.assets) {
     usedIds.add(a.id)
     assets.push(a)
   }
 
   await walkDir(root, '')
-  return { id: folderId, name: folderName, assets }
+  return {
+    id: folderId,
+    name: folderName,
+    assets,
+    ...(remoteListed.sourceKind ? { sourceKind: remoteListed.sourceKind } : {}),
+  }
 }
 
 export async function readFolderContentFromAccess(

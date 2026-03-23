@@ -119,7 +119,7 @@ export function buildFolderManifestFromRemoteUrls(
   const ts = Date.now()
   const folderId = `live_remote_${ts}`
   const assets = buildRemoteAssetEntriesFromUrls(urls, folderId)
-  return { id: folderId, name: displayName, assets }
+  return { id: folderId, name: displayName, assets, sourceKind: 'remote-bed' as const }
 }
 
 /**

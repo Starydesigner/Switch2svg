@@ -5,7 +5,6 @@ import {
   FolderOpen,
   Save,
   Sparkles,
-  Settings,
   X,
   Plus,
   Search,
@@ -17,12 +16,15 @@ import {
   ChevronDown,
 } from 'lucide-react'
 import type { FoldersManifest, AssetEntry, FolderManifest } from './types'
+import bundledAssetsManifest from './assets-manifest.json'
 import {
   assetHasImagePreview,
-  getAssetImageUrl,
   isHttpImageAsset,
+  isImageListingAsset,
   buildSelectedAssetsClipboardText,
+  remoteHttpImageProps,
 } from './utils/assetUrl'
+import { useRemotePreviewSrc } from './utils/remoteHttpPreview'
 import {
   buildFormatOnlySections,
   buildDefaultSections,
@@ -55,13 +57,36 @@ import {
 } from './utils/remoteImageUrls'
 import './App.css'
 
-const AI_CONFIG_KEY = 'switch2svg-ai-config'
 const THEME_KEY = 'switch2svg-theme'
 const SVG_TINT_KEY = 'switch2svg-svg-tint'
 const DEFAULT_SVG_TINT_COLOR = '#333333'
 
+function LeftSearchResultThumb({ asset }: { asset: AssetEntry }) {
+  const { src, pending, failed } = useRemotePreviewSrc(asset)
+  if (asset.format === 'lottie') {
+    return <span className="thumb-placeholder">Lottie</span>
+  }
+  if (!assetHasImagePreview(asset)) {
+    return <AssetThumbPlaceholder />
+  }
+  if (pending) {
+    return <AssetThumbPlaceholder title="加载中" />
+  }
+  if (failed) {
+    return <span className="thumb-placeholder">?</span>
+  }
+  if (
+    (asset.format || '').toLowerCase() === 'svg' ||
+    (asset.path || '').toLowerCase().endsWith('.svg')
+  ) {
+    return <SvgImage src={src} alt="" {...remoteHttpImageProps(asset.displayUrl || src)} />
+  }
+  return <img src={src} alt="" {...remoteHttpImageProps(asset.displayUrl || src)} />
+}
+
 /** 图床/链接分组：标签链式图标、右键复制地址 */
 function folderRemoteBedStyle(folder: FolderManifest): boolean {
+  if (folder.sourceKind === 'remote-bed') return true
   if (folder.id.startsWith('live_remote_')) return true
   if (!folder.assets.length) return false
   return folder.assets.every((a) => isHttpImageAsset(a))
@@ -98,13 +123,6 @@ function parseHex(hex: string): string | null {
   return null
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0.00 B'
-  const k = 1024
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${(bytes / Math.pow(k, i)).toFixed(2)} ${['B', 'KB', 'MB', 'GB'][i]}`
-}
-
 /** 模糊匹配：query 的字符按顺序出现在 text 中（不区分大小写） */
 function fuzzyMatch(query: string, text: string): boolean {
   const q = query.trim().toLowerCase()
@@ -125,26 +143,6 @@ function loadTheme(): 'light' | 'dark' {
     if (t === 'dark' || t === 'light') return t
   } catch (_) {}
   return 'light'
-}
-
-/** 阿里千问大模型 API 配置（用于 AI 分析时的语义分组，不填则使用内置规则分组） */
-export interface AIConfig {
-  apiKey: string
-  model: string
-}
-
-function loadAIConfig(): AIConfig {
-  try {
-    const s = localStorage.getItem(AI_CONFIG_KEY)
-    if (s) {
-      const o = JSON.parse(s)
-      return {
-        apiKey: o.apiKey ?? '',
-        model: o.model ?? 'qwen-turbo',
-      }
-    }
-  } catch (_) {}
-  return { apiKey: '', model: 'qwen-turbo' }
 }
 
 /** 仅使用 manifest 中的 folders，不注入默认 ios/android */
@@ -173,8 +171,6 @@ function App() {
   const [remoteBedAppendFolderId, setRemoteBedAppendFolderId] = useState<string | null>(null)
   const [remoteBedName, setRemoteBedName] = useState('')
   const [remoteBedText, setRemoteBedText] = useState('')
-  const [showAIConfig, setShowAIConfig] = useState(false)
-  const [aiConfig, setAIConfig] = useState<AIConfig>(loadAIConfig)
   const [theme, setTheme] = useState<'light' | 'dark'>(loadTheme)
   const [svgTintConfig, setSvgTintConfig] = useState<SvgTintConfig>(loadSvgTintConfig)
   const [showSvgTintModal, setShowSvgTintModal] = useState(false)
@@ -182,21 +178,46 @@ function App() {
   const [replacementsByFolderId, setReplacementsByFolderId] = useState<Record<string, Record<string, import('./types').ReplacementItem[]>>>({})
 
   const fetchManifest = () => {
-    return fetch('/assets-manifest.json')
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('Failed to load manifest'))))
-      .then((data) => {
-        const next = normalizeManifest(data)
-        setManifest(next)
-        setError(null)
-        if (next.folders.length > 0 && !selectedFolderId) {
-          setSelectedFolderId(next.folders[0].id)
+    const applyData = (data: unknown) => {
+      const next = normalizeManifest(data)
+      setManifest(next)
+      setError(null)
+      if (next.folders.length > 0 && !selectedFolderId) {
+        setSelectedFolderId(next.folders[0].id)
+      }
+      if (selectedFolderId && !next.folders.some((f) => f.id === selectedFolderId)) {
+        setSelectedFolderId(next.folders[0]?.id ?? null)
+      }
+    }
+
+    const tryFetchJson = async (url: string): Promise<unknown | null> => {
+      try {
+        const r = await fetch(url, { cache: 'no-store' })
+        if (!r.ok) return null
+        return await r.json()
+      } catch {
+        return null
+      }
+    }
+
+    ;(async () => {
+      try {
+        let data: unknown | null = null
+        if (import.meta.env.DEV) {
+          data = await tryFetchJson('/assets-manifest.json')
+        } else {
+          data = await tryFetchJson(new URL('assets-manifest.json', window.location.href).href)
+          if (data == null) {
+            data = await tryFetchJson(`${import.meta.env.BASE_URL}assets-manifest.json`)
+          }
         }
-        if (selectedFolderId && !next.folders.some((f) => f.id === selectedFolderId)) {
-          setSelectedFolderId(next.folders[0]?.id ?? null)
-        }
-      })
-      .catch((e) => setError(e?.message || '加载清单失败'))
-      .finally(() => setLoading(false))
+        applyData(data ?? bundledAssetsManifest)
+      } catch {
+        applyData(bundledAssetsManifest)
+      } finally {
+        setLoading(false)
+      }
+    })()
   }
 
   useEffect(() => {
@@ -249,7 +270,7 @@ function App() {
     setCategoriesByFolderId((prev) => ({ ...prev, [currentFolder.id]: next }))
   }
 
-  /** 智能分组：已配置千问 API 时可用大模型语义分组，否则使用内置规则（按文件名关键词）分组 */
+  /** 按内置规则（文件名关键词等）自动语义分组 */
   const handleRunAIAnalysis = async () => {
     if (!currentFolder) return
     if (
@@ -271,6 +292,18 @@ function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchSelectedIds, setSearchSelectedIds] = useState<Set<string>>(new Set())
   const searchRef = useRef<HTMLDivElement>(null)
+  /** 勾选后网格与搜索中不展示 json、pdf 等非图片类素材（仍参与保存与分组数据） */
+  const [hideNonImageFiles, setHideNonImageFiles] = useState(true)
+
+  const visibleAssets = useMemo(() => {
+    if (!hideNonImageFiles) return assets
+    return assets.filter(isImageListingAsset)
+  }, [assets, hideNonImageFiles])
+
+  const visibleAssetIds = useMemo((): ReadonlySet<string> | null => {
+    if (!hideNonImageFiles) return null
+    return new Set(visibleAssets.map((a) => a.id))
+  }, [hideNonImageFiles, visibleAssets])
 
   /** 展示顺序：未分类始终在最后 */
   const displayOrderSections = useMemo(
@@ -290,12 +323,12 @@ function App() {
     return m
   }, [displaySections])
 
-  /** 搜索模糊匹配结果 */
+  /** 搜索模糊匹配结果（随「隐藏非图片」过滤） */
   const searchFilteredAssets = useMemo(() => {
     const q = searchQuery.trim()
-    if (!q || !assets.length) return []
-    return assets.filter((a) => fuzzyMatch(q, a.name) || fuzzyMatch(q, a.path))
-  }, [searchQuery, assets])
+    if (!q || !visibleAssets.length) return []
+    return visibleAssets.filter((a) => fuzzyMatch(q, a.name) || fuzzyMatch(q, a.path))
+  }, [searchQuery, visibleAssets])
 
   /** 搜索结果按分组聚合，顺序与 displayOrderSections 一致；无分组的归为「未分类」 */
   const searchFilteredBySection = useMemo(() => {
@@ -341,6 +374,15 @@ function App() {
     return () => document.removeEventListener('mousedown', onMouseDown)
   }, [showAddProjectDropdown])
 
+  useEffect(() => {
+    if (!hideNonImageFiles) return
+    const vis = new Set(visibleAssets.map((a) => a.id))
+    setSelectedAssetIds((prev) => {
+      const next = new Set([...prev].filter((id) => vis.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [hideNonImageFiles, visibleAssets])
+
   const moveSearchSelectedToSection = useCallback(
     (toSectionId: string) => {
       const ids = Array.from(searchSelectedIds)
@@ -370,35 +412,6 @@ function App() {
     setNewSectionIdToFocus(newSection.id)
     setSearchSelectedIds(new Set())
   }, [searchSelectedIds, currentFolder, sections, folderConfig?.mode])
-
-  /** 顶栏统计：原素材总大小、按分组 replaceMode 计算预计减少素材包大小（随 sections/replaceMode/replacements 实时更新） */
-  const sizeStats = useMemo(() => {
-    if (!currentFolder || assets.length === 0) return null
-    const replacements = replacementsByFolderId[currentFolder.id] ?? {}
-    const originalTotal = assets.reduce((sum, a) => sum + (a.size ?? 0), 0)
-    let reductionTotal = 0
-    for (const section of displaySections) {
-      const mode = section.replaceMode ?? 'replace'
-      const sectionOriginal = section.assetIds.reduce(
-        (sum, id) => sum + (assets.find((a) => a.id === id)?.size ?? 0),
-        0
-      )
-      if (mode === 'keep') {
-        reductionTotal += 0
-      } else if (mode === 'delete') {
-        reductionTotal += sectionOriginal
-      } else {
-        const reps = replacements[section.id] ?? []
-        const replacementTotal = reps.reduce((s, r) => s + (r.size ?? 0), 0)
-        reductionTotal += Math.max(0, sectionOriginal - replacementTotal)
-      }
-    }
-    return {
-      originalTotal,
-      reductionTotal,
-      hasAnySize: originalTotal > 0 || reductionTotal > 0,
-    }
-  }, [currentFolder, assets, sections, displaySections, replacementsByFolderId])
 
   const moveSelectedToSection = useCallback(
     (toSectionId: string) => {
@@ -573,9 +586,10 @@ function App() {
       replacementsMap[sectionId] = items.map((i) => i.filename)
     })
     const folderAccess = liveFolderAccessRef.current[currentFolder.id]
-    const isRemoteBed = currentFolder.id.startsWith('live_remote_')
+    const isUnsavedRemoteBed =
+      !folderAccess && folderRemoteBedStyle(currentFolder)
 
-    if (isRemoteBed && !folderAccess) {
+    if (isUnsavedRemoteBed) {
       if (!isTauri()) {
         alert('图床/链接分组需在桌面版（Tauri）中保存：将请你选择本地父目录并新建项目文件夹。')
         return
@@ -856,11 +870,6 @@ function App() {
     }
   }
 
-  const saveAIConfig = () => {
-    localStorage.setItem(AI_CONFIG_KEY, JSON.stringify(aiConfig))
-    setShowAIConfig(false)
-  }
-
   useEffect(() => {
     if (!currentFolder) return
     const folderAccess = liveFolderAccessRef.current[currentFolder.id]
@@ -1089,42 +1098,6 @@ function App() {
         </div>
       )}
 
-      {showAIConfig && (
-        <div className="modal-overlay" onClick={() => setShowAIConfig(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>阿里千问 API 配置</h3>
-            <p className="modal-hint">用于「自动语义分组」时的语义分组。不填写则使用内置规则（按文件名关键词）分组，无需 API。</p>
-            <label className="config-row">
-              <span className="config-label">API Key</span>
-              <input
-                type="password"
-                className="modal-input"
-                value={aiConfig.apiKey}
-                onChange={(e) => setAIConfig((c) => ({ ...c, apiKey: e.target.value }))}
-                placeholder="阿里云百炼 / DashScope 控制台获取"
-              />
-            </label>
-            <label className="config-row">
-              <span className="config-label">模型</span>
-              <select
-                className="modal-input"
-                value={aiConfig.model}
-                onChange={(e) => setAIConfig((c) => ({ ...c, model: e.target.value }))}
-              >
-                <option value="qwen-turbo">qwen-turbo</option>
-                <option value="qwen-plus">qwen-plus</option>
-                <option value="qwen-max">qwen-max</option>
-                <option value="qwen-long">qwen-long</option>
-              </select>
-            </label>
-            <div className="modal-actions">
-              <button type="button" className="save-btn secondary" onClick={() => setShowAIConfig(false)}>取消</button>
-              <button type="button" className="save-btn" onClick={saveAIConfig}><Save size={14} strokeWidth={2} /> 保存</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <main className="main">
         {loading && <p className="status">加载资源清单中…</p>}
         {error && <p className="status error">{error}</p>}
@@ -1154,13 +1127,14 @@ function App() {
                       <Plus size={14} strokeWidth={2} />
                       新建分组
                     </button>
-                    <button type="button" className="save-btn secondary small" onClick={handleRunAIAnalysis} title="按规则或千问大模型对资源做语义分组">
+                    <button
+                      type="button"
+                      className="save-btn secondary small"
+                      onClick={handleRunAIAnalysis}
+                      title="按内置规则（文件名关键词等）自动语义分组"
+                    >
                       <Sparkles size={14} strokeWidth={2} />
                       自动语义分组
-                    </button>
-                    <button type="button" className="save-btn secondary small" onClick={() => setShowAIConfig(true)}>
-                      <Settings size={14} strokeWidth={2} />
-                      AI 配置
                     </button>
                   </div>
                   <div className="left-panel-search-wrap" ref={searchRef}>
@@ -1240,16 +1214,7 @@ function App() {
                                             className="left-panel-search-result-check"
                                           />
                                           <div className="left-panel-search-result-thumb">
-                                            {asset.format === 'lottie' ? (
-                                              <span className="thumb-placeholder">Lottie</span>
-                                            ) : !assetHasImagePreview(asset) ? (
-                                              <AssetThumbPlaceholder />
-                                            ) : (asset.format || '').toLowerCase() === 'svg' ||
-                                              (asset.path || '').toLowerCase().endsWith('.svg') ? (
-                                              <SvgImage src={getAssetImageUrl(asset)} alt="" />
-                                            ) : (
-                                              <img src={getAssetImageUrl(asset)} alt="" />
-                                            )}
+                                            <LeftSearchResultThumb asset={asset} />
                                           </div>
                                           <div className="left-panel-search-result-info">
                                             <span className="left-panel-search-result-name">{asset.name}</span>
@@ -1296,17 +1261,16 @@ function App() {
                       </div>
                     )}
                   </div>
-                  {sizeStats?.hasAnySize && (
-                    <div className="left-panel-sticky-stats" aria-label="文件大小统计">
-                      <span className="left-panel-sticky-stats-item">
-                        原素材：<strong>{formatBytes(sizeStats.originalTotal)}</strong>
-                      </span>
-                      <span className="left-panel-sticky-stats-item">
-                        预计减少素材包：<strong>{formatBytes(sizeStats.reductionTotal)}</strong>
-                      </span>
-                    </div>
-                  )}
                   <div className="left-panel-sticky-right">
+                    <label className="left-panel-hide-non-image-label">
+                      <input
+                        type="checkbox"
+                        checked={hideNonImageFiles}
+                        onChange={(e) => setHideNonImageFiles(e.target.checked)}
+                        aria-label="隐藏非图片文件"
+                      />
+                      <span>隐藏非图片文件</span>
+                    </label>
                     <button type="button" className="save-btn small" onClick={handleSave} disabled={!currentFolder}>
                       <Save size={14} strokeWidth={2} />
                       保存到项目
@@ -1315,11 +1279,13 @@ function App() {
                 </div>
               </div>
               <div className="left-panel-body">
-                <SectionOutline
-                  sections={displayOrderSections}
-                  onReorder={handleOutlineReorder}
-                  onSectionClick={handleOutlineSectionClick}
-                />
+                <div className="left-panel-outline-column">
+                  <SectionOutline
+                    sections={displayOrderSections}
+                    onReorder={handleOutlineReorder}
+                    onSectionClick={handleOutlineSectionClick}
+                  />
+                </div>
                 <div className="left-panel-main">
                   <AssetGrid
                 assets={assets}
@@ -1339,6 +1305,7 @@ function App() {
                 selectedAssetIds={selectedAssetIds}
                 onSelectionChange={setSelectedAssetIds}
                 onSectionReplaceModeChange={handleSectionReplaceModeChange}
+                    visibleAssetIds={visibleAssetIds}
                   />
                 </div>
               </div>

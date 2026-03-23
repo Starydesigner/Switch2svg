@@ -23,6 +23,8 @@ export interface FolderManifest {
   id: string
   name: string
   assets: AssetEntry[]
+  /** 从 switch2svg-remote-assets.json 恢复：网络图床项目（与 live_remote_ 会话 id 等价） */
+  sourceKind?: 'remote-bed'
 }
 
 /** 清单：按文件夹 */

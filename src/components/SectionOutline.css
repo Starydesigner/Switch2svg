@@ -1,9 +1,9 @@
-/* 分组大纲：卡片样式，在容器内滚动 */
+/* 分组大纲：置于 .left-panel-outline-column 内，占满列高，仅 .outline-list 滚动 */
 .outline-sidebar {
-  width: 180px;
-  flex-shrink: 0;
+  width: 100%;
+  flex: 1 1 0;
   min-height: 0;
-  align-self: stretch;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--bg-surface, #fff);
@@ -11,7 +11,7 @@
   border-radius: var(--radius-sm, 8px);
   box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.04));
   overflow: hidden;
-  margin: 12px var(--space-md, 12px);
+  margin: 0;
 }
 
 .outline-title {
@@ -25,9 +25,9 @@
   border-bottom: 1px solid var(--border, #e8e8ec);
 }
 
-/* 红框 1：分组大纲在此区域内滚动，与右侧滚动互不影响 */
+/* 红框 1：仅此区域滚动；aside 高度由左栏列约束，不随右侧列表内容增高 */
 .outline-list {
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;

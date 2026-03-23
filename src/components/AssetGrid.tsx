@@ -12,7 +12,8 @@ import {
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import type { AssetEntry, ReplacementItem } from '../types'
 import type { CategorySection } from '../utils/categories'
-import { assetHasImagePreview, getAssetImageUrl } from '../utils/assetUrl'
+import { assetHasImagePreview, getAssetImageUrl, remoteHttpImageProps } from '../utils/assetUrl'
+import { useRemotePreviewSrc } from '../utils/remoteHttpPreview'
 import { SvgImage, isSvgFile } from './SvgImage'
 import { AssetThumbPlaceholder } from './AssetThumbPlaceholder'
 import { parseReplacementDragId } from './ReplacementCard'
@@ -25,6 +26,69 @@ const UNCLASSIFIED_LABEL = '未分类'
 
 function isUnclassified(section: CategorySection) {
   return (section.semanticLabel || '') === UNCLASSIFIED_LABEL
+}
+
+function AssetPreviewOverlayBody({
+  asset,
+  onClose,
+}: {
+  asset: AssetEntry
+  onClose: () => void
+}) {
+  const { src, pending, failed } = useRemotePreviewSrc(asset)
+  const canImage = assetHasImagePreview(asset) && asset.format !== 'lottie'
+  return (
+    <div
+      className="asset-preview-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="素材预览"
+      onClick={onClose}
+    >
+      <div className="asset-preview-content" onClick={(e) => e.stopPropagation()}>
+        {asset.format === 'lottie' ? (
+          <div className="asset-preview-file-fallback">
+            <span className="thumb-placeholder">Lottie</span>
+            <p className="asset-preview-hint">浏览器内无法预览 Lottie JSON</p>
+          </div>
+        ) : !canImage ? (
+          <div className="asset-preview-file-fallback">
+            <AssetThumbPlaceholder title="无法预览此格式" large />
+            <p className="asset-preview-hint">此格式无法在浏览器内预览，已计入素材清单</p>
+          </div>
+        ) : pending ? (
+          <AssetThumbPlaceholder title="加载中" large />
+        ) : failed ? (
+          <div className="asset-preview-file-fallback">
+            <AssetThumbPlaceholder title="加载失败" large />
+            <p className="asset-preview-hint">无法加载图片，请检查链接或图床是否允许访问</p>
+          </div>
+        ) : isSvgFile(asset.path, asset.format) ? (
+          <SvgImage
+            src={src}
+            alt={asset.name}
+            className="asset-preview-img"
+            draggable={false}
+            {...remoteHttpImageProps(asset.displayUrl || src)}
+          />
+        ) : (
+          <img
+            src={src}
+            alt={asset.name}
+            className="asset-preview-img"
+            draggable={false}
+            {...remoteHttpImageProps(asset.displayUrl || src)}
+          />
+        )}
+        <div className="asset-preview-name" title={asset.name}>
+          {asset.name}
+        </div>
+        <div className="asset-preview-path" title={asset.path}>
+          {asset.path}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 /** 分组卡片包装（顺序由左侧大纲拖拽控制，此处不再支持拖拽排序） */
@@ -46,6 +110,7 @@ function SectionCard({
   onAssetSelect,
   onSectionReplaceModeChange,
   onAssetPreview,
+  visibleAssetIds,
 }: {
   section: CategorySection
   sections: CategorySection[]
@@ -64,6 +129,7 @@ function SectionCard({
   onAssetSelect?: (assetId: string) => void
   onSectionReplaceModeChange?: (sectionId: string, mode: import('../utils/categories').SectionReplaceMode) => void
   onAssetPreview?: (asset: AssetEntry) => void
+  visibleAssetIds?: ReadonlySet<string> | null
 }) {
   return (
     <SectionDropArea
@@ -85,6 +151,7 @@ function SectionCard({
       onAssetSelect={onAssetSelect}
       onSectionReplaceModeChange={onSectionReplaceModeChange}
       onAssetPreview={onAssetPreview}
+      visibleAssetIds={visibleAssetIds}
     />
   )
 }
@@ -108,6 +175,8 @@ interface AssetGridProps {
   selectedAssetIds?: ReadonlySet<string>
   onSelectionChange?: (set: Set<string>) => void
   onSectionReplaceModeChange?: (sectionId: string, mode: import('../utils/categories').SectionReplaceMode) => void
+  /** 非 null 时仅展示这些素材 id 的卡片（不修改分组数据） */
+  visibleAssetIds?: ReadonlySet<string> | null
 }
 
 export function moveAssetsToSection(
@@ -152,6 +221,7 @@ export function AssetGrid({
   selectedAssetIds: controlledSelectedIds,
   onSelectionChange,
   onSectionReplaceModeChange,
+  visibleAssetIds,
 }: AssetGridProps) {
   const [previewAssetId, setPreviewAssetId] = useState<string | null>(null)
   const sensors = useSensors(
@@ -307,6 +377,7 @@ export function AssetGrid({
               onAssetSelect={handleAssetSelect}
               onSectionReplaceModeChange={onSectionReplaceModeChange}
               onAssetPreview={(asset: AssetEntry) => setPreviewAssetId(asset.id)}
+              visibleAssetIds={visibleAssetIds}
             />
           ))}
           {unclassifiedSections.map((section) => (
@@ -330,6 +401,7 @@ export function AssetGrid({
               onAssetSelect={handleAssetSelect}
               onSectionReplaceModeChange={onSectionReplaceModeChange}
               onAssetPreview={(asset: AssetEntry) => setPreviewAssetId(asset.id)}
+              visibleAssetIds={visibleAssetIds}
             />
           ))}
         </div>
@@ -341,50 +413,18 @@ export function AssetGrid({
           })()
         ) : null}
       </DragOverlay>
-      {previewAssetId && (() => {
-        const asset = assetsById.get(previewAssetId)
-        if (!asset) return null
-        const canImage = assetHasImagePreview(asset) && asset.format !== 'lottie'
-        return (
-          <div
-            className="asset-preview-overlay"
-            role="dialog"
-            aria-modal="true"
-            aria-label="素材预览"
-            onClick={() => setPreviewAssetId(null)}
-          >
-            <div className="asset-preview-content" onClick={(e) => e.stopPropagation()}>
-              {asset.format === 'lottie' ? (
-                <div className="asset-preview-file-fallback">
-                  <span className="thumb-placeholder">Lottie</span>
-                  <p className="asset-preview-hint">浏览器内无法预览 Lottie JSON</p>
-                </div>
-              ) : !canImage ? (
-                <div className="asset-preview-file-fallback">
-                  <AssetThumbPlaceholder title="无法预览此格式" large />
-                  <p className="asset-preview-hint">此格式无法在浏览器内预览，已计入素材清单</p>
-                </div>
-              ) : isSvgFile(asset.path, asset.format) ? (
-                <SvgImage
-                  src={getAssetImageUrl(asset)}
-                  alt={asset.name}
-                  className="asset-preview-img"
-                  draggable={false}
-                />
-              ) : (
-                <img
-                  src={getAssetImageUrl(asset)}
-                  alt={asset.name}
-                  className="asset-preview-img"
-                  draggable={false}
-                />
-              )}
-              <div className="asset-preview-name" title={asset.name}>{asset.name}</div>
-              <div className="asset-preview-path" title={asset.path}>{asset.path}</div>
-            </div>
-          </div>
-        )
-      })()}
+      {previewAssetId &&
+        (() => {
+          const asset = assetsById.get(previewAssetId)
+          if (!asset) return null
+          return (
+            <AssetPreviewOverlayBody
+              key={previewAssetId}
+              asset={asset}
+              onClose={() => setPreviewAssetId(null)}
+            />
+          )
+        })()}
       </DndContext>
     </div>
   )

@@ -20,7 +20,7 @@
 
 .welcome-guide__lead {
   margin: 0 auto var(--space-lg);
-  max-width: 520px;
+  max-width: 560px;
   font-size: 14px;
   line-height: 1.55;
   color: var(--text-secondary);
@@ -126,6 +126,18 @@
   color: var(--accent);
   border: 1px solid var(--accent-border);
   box-shadow: var(--shadow-sm);
+}
+
+.welcome-viz-link-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--bg-surface);
+  color: var(--accent);
+  border: 1px dashed var(--accent-border);
 }
 
 .welcome-card__viz--flow {

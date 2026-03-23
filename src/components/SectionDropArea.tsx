@@ -35,6 +35,8 @@ interface SectionDropAreaProps {
   onSectionReplaceModeChange?: (sectionId: string, mode: SectionReplaceMode) => void
   /** 双击/空格全屏预览素材 */
   onAssetPreview?: (asset: AssetEntry) => void
+  /** 若提供，仅展示这些 id 的素材卡片（分组内仍保留完整 assetIds，不改动配置） */
+  visibleAssetIds?: ReadonlySet<string> | null
 }
 
 export function SectionDropArea({
@@ -54,6 +56,7 @@ export function SectionDropArea({
   onAssetSelect,
   onSectionReplaceModeChange,
   onAssetPreview,
+  visibleAssetIds,
 }: SectionDropAreaProps) {
   const isUnclassified = (section.semanticLabel || '') === '未分类'
   const replaceMode = section.replaceMode ?? 'replace'
@@ -61,7 +64,10 @@ export function SectionDropArea({
   const titleInputRef = useRef<HTMLInputElement>(null)
   const [titleValue, setTitleValue] = useState(section.semanticLabel || '未分类')
   const { setNodeRef, isOver } = useDroppable({ id: section.id })
-  const assets = section.assetIds
+  const listedAssetIds = visibleAssetIds
+    ? section.assetIds.filter((id) => visibleAssetIds.has(id))
+    : section.assetIds
+  const assets = listedAssetIds
     .map((id) => assetsById.get(id))
     .filter((a): a is AssetEntry => a != null)
 
@@ -124,7 +130,7 @@ export function SectionDropArea({
               </button>
             )}
           </div>
-          <SortableContext items={section.assetIds} strategy={verticalListSortingStrategy}>
+          <SortableContext items={listedAssetIds} strategy={verticalListSortingStrategy}>
             <div className="section-cards">
               {assets.map((asset) => (
                 <SortableAssetCard
