@@ -18,6 +18,33 @@ export function assetHasImagePreview(asset: AssetEntry): boolean {
  * - 旧清单：path 以 `.imageset` 结尾表示整包，用 images 里 @2x 等拼子路径
  * - FSA 逐文件：path 为 `xxx.imageset/具体文件`，走单层 path，避免误拼成双路径
  */
+/** 是否为网络直链素材（用于图床分组 UI：链接图标、复制地址等） */
+export function isHttpImageAsset(asset: AssetEntry): boolean {
+  const u = asset.displayUrl || ''
+  return /^https?:\/\//i.test(u)
+}
+
+/** 多选复制到剪贴板：图床模式优先写 https 地址，否则写「名称.扩展名」 */
+export function buildSelectedAssetsClipboardText(
+  selectedIds: Iterable<string>,
+  assetsById: Map<string, AssetEntry>,
+  remoteBedStyle: boolean
+): string {
+  const lines: string[] = []
+  for (const id of selectedIds) {
+    const a = assetsById.get(id)
+    if (!a) continue
+    if (remoteBedStyle) {
+      if (isHttpImageAsset(a)) lines.push(a.displayUrl!.trim())
+      else lines.push(a.format ? `${a.name}.${a.format}` : a.name)
+      continue
+    }
+    if (!a.name) continue
+    lines.push(a.format ? `${a.name}.${a.format}` : a.name)
+  }
+  return lines.filter(Boolean).join('\n')
+}
+
 export function getAssetImageUrl(asset: AssetEntry): string {
   if (asset.displayUrl) return asset.displayUrl
   const normalized = asset.path.replace(/\\/g, '/')

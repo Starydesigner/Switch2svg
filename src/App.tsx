@@ -1,7 +1,28 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react'
-import { Folder, FolderOpen, Save, Sparkles, Settings, X, Plus, ChevronDown, Search } from 'lucide-react'
-import type { FoldersManifest, AssetEntry } from './types'
-import { assetHasImagePreview, getAssetImageUrl } from './utils/assetUrl'
+import { isTauri } from '@tauri-apps/api/core'
+import {
+  Folder,
+  FolderOpen,
+  Save,
+  Sparkles,
+  Settings,
+  X,
+  Plus,
+  Search,
+  Link,
+  Copy,
+  FolderInput,
+  Trash2,
+  ImagePlus,
+  ChevronDown,
+} from 'lucide-react'
+import type { FoldersManifest, AssetEntry, FolderManifest } from './types'
+import {
+  assetHasImagePreview,
+  getAssetImageUrl,
+  isHttpImageAsset,
+  buildSelectedAssetsClipboardText,
+} from './utils/assetUrl'
 import {
   buildFormatOnlySections,
   buildDefaultSections,
@@ -16,6 +37,8 @@ import { AssetThumbPlaceholder } from './components/AssetThumbPlaceholder'
 import { SectionOutline } from './components/SectionOutline'
 import {
   pickAnalysisFolderDirect,
+  pickParentDirectoryTauri,
+  createRemoteAnalysisBundleTauri,
   readFolderContentFromAccess,
   readFolderConfigFromAccess,
   loadReplacementPreviewsFromAccess,
@@ -25,12 +48,24 @@ import {
   type LiveFolderAccess,
 } from './utils/fsa'
 import { blockingConfirm } from './utils/blockingConfirm'
+import {
+  extractImageUrlsFromTextDetailed,
+  buildFolderManifestFromRemoteUrls,
+  buildRemoteAssetEntriesFromUrls,
+} from './utils/remoteImageUrls'
 import './App.css'
 
 const AI_CONFIG_KEY = 'switch2svg-ai-config'
 const THEME_KEY = 'switch2svg-theme'
 const SVG_TINT_KEY = 'switch2svg-svg-tint'
 const DEFAULT_SVG_TINT_COLOR = '#333333'
+
+/** 图床/链接分组：标签链式图标、右键复制地址 */
+function folderRemoteBedStyle(folder: FolderManifest): boolean {
+  if (folder.id.startsWith('live_remote_')) return true
+  if (!folder.assets.length) return false
+  return folder.assets.every((a) => isHttpImageAsset(a))
+}
 
 export interface SvgTintConfig {
   themeAdapt: boolean
@@ -131,6 +166,13 @@ function App() {
   /** 已从列表中移除的 manifest 文件夹名称（已从 analysis-folders 配置中删除，需过滤展示） */
   const [removedFolderNames, setRemovedFolderNames] = useState<Set<string>>(new Set())
   const [addFolderLoading, setAddFolderLoading] = useState(false)
+  const [showAddProjectDropdown, setShowAddProjectDropdown] = useState(false)
+  const addProjectDropdownRef = useRef<HTMLDivElement>(null)
+  const [showRemoteBedModal, setShowRemoteBedModal] = useState(false)
+  /** 非 null 时表示在「当前远程文件夹」内追加链接，而非新建标签 */
+  const [remoteBedAppendFolderId, setRemoteBedAppendFolderId] = useState<string | null>(null)
+  const [remoteBedName, setRemoteBedName] = useState('')
+  const [remoteBedText, setRemoteBedText] = useState('')
   const [showAIConfig, setShowAIConfig] = useState(false)
   const [aiConfig, setAIConfig] = useState<AIConfig>(loadAIConfig)
   const [theme, setTheme] = useState<'light' | 'dark'>(loadTheme)
@@ -289,6 +331,16 @@ function App() {
     return () => document.removeEventListener('mousedown', onMouseDown)
   }, [searchOpen])
 
+  useEffect(() => {
+    if (!showAddProjectDropdown) return
+    const onMouseDown = (e: MouseEvent) => {
+      if (addProjectDropdownRef.current?.contains(e.target as Node)) return
+      setShowAddProjectDropdown(false)
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    return () => document.removeEventListener('mousedown', onMouseDown)
+  }, [showAddProjectDropdown])
+
   const moveSearchSelectedToSection = useCallback(
     (toSectionId: string) => {
       const ids = Array.from(searchSelectedIds)
@@ -358,6 +410,53 @@ function App() {
     },
     [selectedAssetIds, displaySections]
   )
+
+  /** 远程图床文件夹：从当前会话列表移除选中素材（仅 live_ 会话，下次保存会更新侧车 JSON） */
+  const handleRemoveSelectedRemoteBedAssets = async () => {
+    if (!currentFolder || selectedAssetIds.size === 0) return
+    if (!folderRemoteBedStyle(currentFolder)) return
+    if (!currentFolder.id.startsWith('live_')) {
+      alert('内置清单中的素材无法从此处移除。')
+      return
+    }
+    const idSet = new Set(selectedAssetIds)
+    const n = idSet.size
+    if (!(await blockingConfirm(`从当前列表移除已选 ${n} 个素材？`, '移除素材'))) return
+
+    const folderId = currentFolder.id
+
+    setLiveFolders((prev) =>
+      prev.map((f) => {
+        if (f.id !== folderId) return f
+        return {
+          ...f,
+          assets: f.assets.filter((a) => {
+            if (!idSet.has(a.id)) return true
+            if (a.displayUrl?.startsWith('blob:')) URL.revokeObjectURL(a.displayUrl)
+            return false
+          }),
+        }
+      })
+    )
+
+    setCategoriesByFolderId((prev) => {
+      const cfg = prev[folderId]
+      if (!cfg?.sections?.length) return prev
+      return {
+        ...prev,
+        [folderId]: {
+          mode: cfg.mode,
+          sections: cfg.sections.map((s) => ({
+            ...s,
+            assetIds: s.assetIds.filter((id) => !idSet.has(id)),
+          })),
+        },
+      }
+    })
+
+    setSelectedAssetIds(new Set())
+    setShowMoveToSectionDropdown(false)
+  }
 
   /** 将当前选中的素材归到新分组：创建新分组并移动选中项 */
   const moveSelectedToNewSection = useCallback(() => {
@@ -465,7 +564,7 @@ function App() {
     })
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!currentFolder) return
     const sections = categoriesByFolderId[currentFolder.id]?.sections ?? displaySections
     const replacements = replacementsByFolderId[currentFolder.id] ?? {}
@@ -474,9 +573,60 @@ function App() {
       replacementsMap[sectionId] = items.map((i) => i.filename)
     })
     const folderAccess = liveFolderAccessRef.current[currentFolder.id]
-    saveFolderConfigToSvgReplace(currentFolder.name, { sections, replacements: replacementsMap }, folderAccess)
-      .then(() => alert('已保存配置到分析文件夹下 Svg_replace 文件夹中。下次打开分析文件夹将自动读取配置。'))
-      .catch((err) => alert('保存失败: ' + (err?.message || err)))
+    const isRemoteBed = currentFolder.id.startsWith('live_remote_')
+
+    if (isRemoteBed && !folderAccess) {
+      if (!isTauri()) {
+        alert('图床/链接分组需在桌面版（Tauri）中保存：将请你选择本地父目录并新建项目文件夹。')
+        return
+      }
+      const parent = await pickParentDirectoryTauri()
+      if (parent == null) return
+      try {
+        const { rootPath } = await createRemoteAnalysisBundleTauri(
+          parent,
+          currentFolder.name,
+          sections,
+          replacements,
+          currentFolder.assets
+        )
+        liveFolderAccessRef.current[currentFolder.id] = { kind: 'tauri', rootPath }
+        Object.values(replacements)
+          .flat()
+          .forEach((item) => {
+            if (item.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(item.previewUrl)
+          })
+        const savedConfig = await readFolderConfigFromAccess({ kind: 'tauri', rootPath })
+        const itemsBySection = await loadReplacementPreviewsFromAccess(
+          { kind: 'tauri', rootPath },
+          savedConfig?.replacements ?? {}
+        )
+        const applied = applySavedSections(currentFolder.assets, savedConfig?.sections ?? sections)
+        const alignedReplacements: Record<string, import('./types').ReplacementItem[]> = {}
+        for (const sec of applied) {
+          alignedReplacements[sec.id] = itemsBySection[sec.id] ?? []
+        }
+        setReplacementsByFolderId((prev) => ({ ...prev, [currentFolder.id]: alignedReplacements }))
+        alert(
+          `已创建项目文件夹并保存 Svg_replace/config.json：\n${rootPath}\n\n之后可继续在本分组上传替换图，将写入该目录。`
+        )
+      } catch (err: any) {
+        alert('保存失败: ' + (err?.message || err))
+      }
+      return
+    }
+
+    try {
+      await saveFolderConfigToSvgReplace(
+        currentFolder.name,
+        { sections, replacements: replacementsMap },
+        folderAccess,
+        currentFolder.assets
+      )
+      alert('已保存配置到分析文件夹下 Svg_replace 文件夹中。下次打开分析文件夹将自动读取配置。')
+    } catch (err: any) {
+      alert('保存失败: ' + (err?.message || err))
+    }
   }
 
   const handleReplacementUploaded = (sectionId: string, item: import('./types').ReplacementItem) => {
@@ -571,6 +721,118 @@ function App() {
     }
   }
 
+  const openRemoteBedModal = () => {
+    setRemoteBedAppendFolderId(null)
+    const stamp = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    setRemoteBedName(
+      `图床素材_${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}_${pad(stamp.getHours())}${pad(stamp.getMinutes())}`
+    )
+    setRemoteBedText('')
+    setShowRemoteBedModal(true)
+  }
+
+  const openAppendRemoteAssetsModal = () => {
+    if (!currentFolder || !folderRemoteBedStyle(currentFolder)) return
+    setRemoteBedAppendFolderId(currentFolder.id)
+    setRemoteBedText('')
+    setShowRemoteBedModal(true)
+  }
+
+  const closeRemoteBedModal = () => {
+    setShowRemoteBedModal(false)
+    setRemoteBedAppendFolderId(null)
+    setRemoteBedText('')
+  }
+
+  const handleConfirmRemoteBed = () => {
+    const { urls, droppedDuplicateInInputCount } = extractImageUrlsFromTextDetailed(remoteBedText)
+    if (urls.length === 0) {
+      alert('未识别到图片直链（支持多行 URL 或含链接的 JSON）。请粘贴以 .png / .jpg / .svg 等结尾的完整地址。')
+      return
+    }
+
+    const appendId = remoteBedAppendFolderId
+    if (appendId) {
+      const folder = liveFolders.find((f) => f.id === appendId)
+      if (!folder) {
+        alert('当前文件夹已不在会话列表中，请关闭后重试。')
+        closeRemoteBedModal()
+        return
+      }
+      const existingUrls = new Set(
+        folder.assets.map((a) => a.displayUrl).filter((u): u is string => Boolean(u))
+      )
+      const newAssets = buildRemoteAssetEntriesFromUrls(urls, appendId, existingUrls)
+      if (newAssets.length === 0) {
+        alert('没有可添加的链接（可能已全部存在于当前文件夹，或与已有链接重复）。')
+        return
+      }
+      setLiveFolders((prev) =>
+        prev.map((f) =>
+          f.id === appendId ? { ...f, assets: [...f.assets, ...newAssets] } : f
+        )
+      )
+      setCategoriesByFolderId((prev) => {
+        const cfg = prev[appendId]
+        if (!cfg?.sections?.length) return prev
+        const newIds = newAssets.map((a) => a.id)
+        const savedIds = new Set(cfg.sections.flatMap((s) => s.assetIds))
+        const trulyNew = newIds.filter((id) => !savedIds.has(id))
+        if (trulyNew.length === 0) return prev
+        const unclassified = cfg.sections.find((s) => s.semanticLabel === '未分类')
+        if (unclassified) {
+          return {
+            ...prev,
+            [appendId]: {
+              ...cfg,
+              sections: cfg.sections.map((s) =>
+                s.id === unclassified.id
+                  ? { ...s, assetIds: [...s.assetIds, ...trulyNew] }
+                  : s
+              ),
+            },
+          }
+        }
+        return {
+          ...prev,
+          [appendId]: {
+            ...cfg,
+            sections: [
+              ...cfg.sections,
+              {
+                id: `sem-未分类-${Date.now()}`,
+                format: '',
+                semanticLabel: '未分类',
+                assetIds: trulyNew,
+              },
+            ],
+          },
+        }
+      })
+      closeRemoteBedModal()
+      const skippedExisting = urls.length - newAssets.length
+      if (droppedDuplicateInInputCount > 0 || skippedExisting > 0) {
+        alert('已去除重复添加素材')
+      }
+      return
+    }
+
+    const name = remoteBedName.trim() || '图床素材'
+    const existingNames = allFolders.map((f) => f.name)
+    if (existingNames.includes(name)) {
+      alert('已存在同名标签，请修改显示名称')
+      return
+    }
+    const folderManifest = buildFolderManifestFromRemoteUrls(urls, name)
+    setLiveFolders((prev) => [...prev, folderManifest])
+    setSelectedFolderId(folderManifest.id)
+    closeRemoteBedModal()
+    if (droppedDuplicateInInputCount > 0) {
+      alert('已去除重复添加素材')
+    }
+  }
+
   const handleDeleteFolder = async (folderId: string, folderName: string, isLive: boolean) => {
     if (!(await blockingConfirm(`确定要移除「${folderName}」吗？`, '移除文件夹'))) return
     if (selectedFolderId === folderId) {
@@ -580,7 +842,9 @@ function App() {
     if (isLive) {
       const folder = liveFolders.find((f) => f.id === folderId)
       if (folder) {
-        folder.assets.forEach((a) => { if (a.displayUrl) URL.revokeObjectURL(a.displayUrl) })
+        folder.assets.forEach((a) => {
+          if (a.displayUrl?.startsWith('blob:')) URL.revokeObjectURL(a.displayUrl)
+        })
         setLiveFolders((prev) => prev.filter((f) => f.id !== folderId))
         delete liveFolderAccessRef.current[folderId]
       }
@@ -613,7 +877,8 @@ function App() {
       saveFolderConfigToSvgReplace(
         currentFolder.name,
         { sections: sectionsToSave, replacements: replacementsMap },
-        folderAccess
+        folderAccess,
+        currentFolder.assets
       ).catch((err) => {
         console.error('Auto save config failed:', err)
       })
@@ -641,7 +906,11 @@ function App() {
                     className="tab"
                     onClick={() => setSelectedFolderId(f.id)}
                   >
-                    <Folder size={14} strokeWidth={2} />
+                    {folderRemoteBedStyle(f) ? (
+                      <Link size={14} strokeWidth={2} aria-hidden />
+                    ) : (
+                      <Folder size={14} strokeWidth={2} aria-hidden />
+                    )}
                     {f.name}
                   </button>
                   <button
@@ -657,10 +926,48 @@ function App() {
               )
             })}
           </nav>
-          <button type="button" className="save-btn secondary" onClick={handleOpenAddFolder} disabled={addFolderLoading}>
-            <FolderOpen size={16} strokeWidth={2} />
-            {addFolderLoading ? '读取中…' : '选择文件夹'}
-          </button>
+          <div className="header-add-project-wrap" ref={addProjectDropdownRef}>
+            <button
+              type="button"
+              className="save-btn secondary header-add-project-trigger"
+              aria-expanded={showAddProjectDropdown}
+              aria-haspopup="menu"
+              onClick={() => setShowAddProjectDropdown((v) => !v)}
+            >
+              <Plus size={16} strokeWidth={2} />
+              添加项目
+              <ChevronDown size={16} strokeWidth={2} className="header-add-project-chevron" aria-hidden />
+            </button>
+            {showAddProjectDropdown && (
+              <div className="header-add-project-menu" role="menu" aria-label="添加项目">
+                <button
+                  type="button"
+                  className="header-add-project-option"
+                  role="menuitem"
+                  disabled={addFolderLoading}
+                  onClick={() => {
+                    setShowAddProjectDropdown(false)
+                    void handleOpenAddFolder()
+                  }}
+                >
+                  <FolderOpen size={16} strokeWidth={2} aria-hidden />
+                  {addFolderLoading ? '读取中…' : '本地图片文件夹'}
+                </button>
+                <button
+                  type="button"
+                  className="header-add-project-option"
+                  role="menuitem"
+                  onClick={() => {
+                    setShowAddProjectDropdown(false)
+                    openRemoteBedModal()
+                  }}
+                >
+                  <Link size={16} strokeWidth={2} aria-hidden />
+                  网络图床素材
+                </button>
+              </div>
+            )}
+          </div>
         </div>
         <button
           type="button"
@@ -691,6 +998,51 @@ function App() {
           </button>
         </div>
       </header>
+
+      {showRemoteBedModal && (
+        <div className="modal-overlay" onClick={closeRemoteBedModal}>
+          <div className="modal remote-bed-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>
+              {remoteBedAppendFolderId ? '向当前文件夹添加远程素材' : '从图床 / 链接添加素材'}
+            </h3>
+            <p className="modal-hint">
+              粘贴多条图片直链（每行一条），或粘贴接口返回的 JSON（将自动提取其中的图片 URL）。无法仅凭目录地址枚举文件，需完整 https 链接。
+              {remoteBedAppendFolderId ? ' 新素材将并入当前标签页，与已有链接去重。' : ''}
+            </p>
+            {!remoteBedAppendFolderId && (
+              <label className="config-row" style={{ display: 'block', marginBottom: 8 }}>
+                <span className="config-label">显示名称</span>
+                <input
+                  type="text"
+                  className="modal-input"
+                  style={{ marginBottom: 12 }}
+                  value={remoteBedName}
+                  onChange={(e) => setRemoteBedName(e.target.value)}
+                  placeholder="图床素材"
+                  aria-label="图床素材显示名称"
+                />
+              </label>
+            )}
+            <textarea
+              className="modal-input modal-textarea"
+              rows={10}
+              value={remoteBedText}
+              onChange={(e) => setRemoteBedText(e.target.value)}
+              placeholder="https://example.com/path/image.png"
+              aria-label="图片 URL 或 JSON"
+            />
+            <div className="modal-actions">
+              <button type="button" className="save-btn secondary" onClick={closeRemoteBedModal}>
+                取消
+              </button>
+              <button type="button" className="save-btn" onClick={handleConfirmRemoteBed}>
+                <Link size={14} strokeWidth={2} />
+                {remoteBedAppendFolderId ? '添加素材' : '添加预览'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showSvgTintModal && (
         <div className="modal-overlay" onClick={() => setShowSvgTintModal(false)}>
@@ -787,6 +1139,17 @@ function App() {
               <div className="left-panel-sticky-bar">
                 <div className="left-panel-sticky-actions">
                   <div className="left-panel-sticky-left">
+                    {currentFolder && folderRemoteBedStyle(currentFolder) && (
+                      <button
+                        type="button"
+                        className="save-btn secondary small"
+                        onClick={openAppendRemoteAssetsModal}
+                        title="批量粘贴图片直链，追加到当前图床文件夹"
+                      >
+                        <ImagePlus size={14} strokeWidth={2} />
+                        添加素材
+                      </button>
+                    )}
                     <button type="button" className="save-btn secondary small" onClick={handleAddManualGroup}>
                       <Plus size={14} strokeWidth={2} />
                       新建分组
@@ -975,14 +1338,40 @@ function App() {
                 onClearNewSectionIdToFocus={() => setNewSectionIdToFocus(null)}
                 selectedAssetIds={selectedAssetIds}
                 onSelectionChange={setSelectedAssetIds}
-                onMoveSelectedToSection={moveSelectedToSection}
                 onSectionReplaceModeChange={handleSectionReplaceModeChange}
                   />
                 </div>
               </div>
               {selectedAssetIds.size > 0 && (
-                <div className="selection-capsule">
-                  <span className="selection-capsule-count">已选 {selectedAssetIds.size} 项</span>
+                <div className="selection-capsule" role="toolbar" aria-label="选中素材操作">
+                  <button
+                    type="button"
+                    className="selection-capsule-btn"
+                    onClick={() => setSelectedAssetIds(new Set())}
+                  >
+                    取消选中（{selectedAssetIds.size}个）
+                  </button>
+                  <span className="selection-capsule-divider" aria-hidden />
+                  <button
+                    type="button"
+                    className="selection-capsule-btn"
+                    onClick={() => {
+                      const assetsById = new Map(currentFolder.assets.map((a) => [a.id, a]))
+                      const text = buildSelectedAssetsClipboardText(
+                        selectedAssetIds,
+                        assetsById,
+                        folderRemoteBedStyle(currentFolder)
+                      )
+                      if (text) void navigator.clipboard.writeText(text)
+                    }}
+                  >
+                    {folderRemoteBedStyle(currentFolder) ? (
+                      <Link size={16} strokeWidth={2} aria-hidden />
+                    ) : (
+                      <Copy size={16} strokeWidth={2} aria-hidden />
+                    )}
+                    {folderRemoteBedStyle(currentFolder) ? '复制链接' : '复制名称'}
+                  </button>
                   <div className="selection-capsule-move-wrap">
                     <button
                       type="button"
@@ -991,8 +1380,8 @@ function App() {
                       aria-expanded={showMoveToSectionDropdown}
                       aria-haspopup="true"
                     >
+                      <FolderInput size={16} strokeWidth={2} aria-hidden />
                       移动分组
-                      <ChevronDown size={14} strokeWidth={2} />
                     </button>
                     {showMoveToSectionDropdown && (
                       <>
@@ -1025,13 +1414,16 @@ function App() {
                       </>
                     )}
                   </div>
-                  <button
-                    type="button"
-                    className="selection-capsule-btn"
-                    onClick={() => setSelectedAssetIds(new Set())}
-                  >
-                    取消选择
-                  </button>
+                  {folderRemoteBedStyle(currentFolder) && currentFolder.id.startsWith('live_') && (
+                    <button
+                      type="button"
+                      className="selection-capsule-btn selection-capsule-btn-danger"
+                      onClick={() => void handleRemoveSelectedRemoteBedAssets()}
+                    >
+                      <Trash2 size={16} strokeWidth={2} aria-hidden />
+                      移除
+                    </button>
+                  )}
                 </div>
               )}
             </section>

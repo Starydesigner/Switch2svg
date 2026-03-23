@@ -64,7 +64,6 @@ export function SectionDropArea({
   const assets = section.assetIds
     .map((id) => assetsById.get(id))
     .filter((a): a is AssetEntry => a != null)
-  const sectionLabel = section.semanticLabel || '未分类'
 
   useEffect(() => {
     setTitleValue(section.semanticLabel || '未分类')
@@ -180,8 +179,6 @@ export function SectionDropArea({
               <UploadReplacement
                 folderName={folderName}
                 folderAccess={folderAccess}
-                sectionId={section.id}
-                sectionLabel={sectionLabel}
                 onUploaded={handleUploaded}
               />
             )}

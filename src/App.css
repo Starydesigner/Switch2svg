@@ -100,6 +100,61 @@
   min-width: 0;
 }
 
+.header-add-project-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.header-add-project-trigger .header-add-project-chevron {
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.header-add-project-trigger[aria-expanded='true'] .header-add-project-chevron {
+  transform: rotate(180deg);
+}
+
+.header-add-project-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 220px;
+  padding: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  z-index: 30;
+}
+
+.header-add-project-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.header-add-project-option:hover:not(:disabled) {
+  background: var(--bg-page);
+}
+
+.header-add-project-option:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .svg-tint-btn {
   flex-shrink: 0;
   display: inline-flex;
@@ -321,6 +376,8 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
 }
 
 .status {
@@ -346,24 +403,28 @@
   flex: 1;
   min-height: 0;
   display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
   gap: 0;
 }
 
-/* 左侧整列吸顶：右侧分组区滚动时，左侧分组大纲保持固定可见 */
+/* 左侧整列：占满 .content 高度，内部从顶部向下排布 */
 .left-panel {
-  position: sticky;
-  top: var(--header-height);
-  align-self: flex-start;
-  max-height: calc(100vh - var(--header-height));
+  position: relative;
   flex: 1;
+  min-height: 0;
   min-width: 0;
+  width: 100%;
   background: var(--bg-page);
   display: flex;
   flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
   overflow: hidden;
 }
 
-/* 底部悬浮胶囊：移动分组、取消选择 */
+/* 底部悬浮胶囊：取消选中、复制、移动分组、移除 */
 .selection-capsule {
   position: absolute;
   bottom: 16px;
@@ -400,13 +461,23 @@
   background: rgba(255, 255, 255, 0.2);
 }
 
-.selection-capsule-count {
-  font-size: 13px;
-  font-weight: 500;
-  opacity: 0.95;
-  padding-right: 4px;
-  border-right: 1px solid rgba(255, 255, 255, 0.4);
-  margin-right: 4px;
+.selection-capsule-btn-danger {
+  color: #f87171;
+  font-weight: 600;
+}
+
+.selection-capsule-btn-danger:hover {
+  background: rgba(220, 38, 38, 0.55);
+  color: #fecaca;
+}
+
+.selection-capsule-divider {
+  width: 1px;
+  align-self: stretch;
+  min-height: 20px;
+  margin: 2px 4px;
+  background: rgba(255, 255, 255, 0.35);
+  flex-shrink: 0;
 }
 
 .selection-capsule-move-wrap {
@@ -915,6 +986,17 @@
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-bg);
+}
+
+.modal-textarea {
+  min-height: 200px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.remote-bed-modal {
+  min-width: min(480px, 92vw);
+  max-width: 640px;
 }
 
 .modal-actions {

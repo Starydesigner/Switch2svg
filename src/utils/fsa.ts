@@ -25,6 +25,8 @@ function inferFormat(filename: string): string {
 const DATA_DIR = 'switch2svg-data'
 const ANALYSIS_FOLDERS_FILE = 'analysis-folders.json'
 const SVG_REPLACE_CONFIG_FILE = 'config.json'
+/** 与 Svg_replace 同级：持久化图床/链接类素材（仅 JSON，便于再次「选择文件夹」恢复预览与分组 id） */
+const REMOTE_ASSETS_FILE = 'switch2svg-remote-assets.json'
 
 function checkFSA(): boolean {
   return typeof window !== 'undefined' && 'showDirectoryPicker' in window
@@ -230,6 +232,176 @@ export async function pickAnalysisFolderDirect(): Promise<{
 }
 
 /**
+ * 选择父目录（图床/链接分组「保存」时，在其下新建项目子文件夹）。
+ */
+export async function pickParentDirectoryTauri(): Promise<string | null> {
+  if (!isTauri()) return null
+  const { open } = await import('@tauri-apps/plugin-dialog')
+  let selected: string | null
+  try {
+    selected = await open({
+      directory: true,
+      multiple: false,
+      recursive: true,
+      fileAccessMode: 'scoped',
+    })
+  } catch {
+    selected = await open({
+      directory: true,
+      multiple: false,
+      recursive: true,
+    })
+  }
+  if (selected === null) return null
+  return normalizeTauriRootPath(selected as string)
+}
+
+function sanitizeBundleDirName(name: string): string {
+  const s = name.replace(/[/\\?*:]/g, '_').trim()
+  return s || 'switch2svg_bundle'
+}
+
+function isHttpDisplayUrl(url: string | undefined): boolean {
+  return typeof url === 'string' && /^https?:\/\//i.test(url)
+}
+
+function normalizeStoredRemoteAsset(a: AssetEntry): AssetEntry {
+  const images = Array.isArray(a.images) && a.images.length > 0 ? a.images : [{ filename: 'image' }]
+  return {
+    id: a.id,
+    name: a.name,
+    path: a.path,
+    format: a.format || 'png',
+    images,
+    displayUrl: a.displayUrl,
+    imagePreviewable: isHttpDisplayUrl(a.displayUrl) ? a.imagePreviewable !== false : !!a.displayUrl,
+    size: a.size,
+  }
+}
+
+async function loadRemoteAssetsFromManifestTauri(rootPath: string): Promise<AssetEntry[]> {
+  const { join } = await import('@tauri-apps/api/path')
+  const { readTextFile, exists } = await import('@tauri-apps/plugin-fs')
+  const p = await join(normalizeTauriRootPath(rootPath), REMOTE_ASSETS_FILE)
+  if (!(await exists(p))) return []
+  try {
+    const text = await readTextFile(p)
+    const parsed = JSON.parse(text) as { assets?: AssetEntry[] }
+    if (!Array.isArray(parsed.assets)) return []
+    return parsed.assets.map((x) => normalizeStoredRemoteAsset(x))
+  } catch {
+    return []
+  }
+}
+
+async function loadRemoteAssetsFromManifestHandle(
+  folderHandle: FileSystemDirectoryHandle
+): Promise<AssetEntry[]> {
+  try {
+    const fh = await folderHandle.getFileHandle(REMOTE_ASSETS_FILE, { create: false })
+    const file = await fh.getFile()
+    const text = await file.text()
+    const parsed = JSON.parse(text) as { assets?: AssetEntry[] }
+    if (!Array.isArray(parsed.assets)) return []
+    return parsed.assets.map((x) => normalizeStoredRemoteAsset(x))
+  } catch {
+    return []
+  }
+}
+
+async function writeRemoteAssetsSidecar(
+  access: LiveFolderAccess,
+  remoteSourceAssets: AssetEntry[] | undefined
+): Promise<void> {
+  if (!remoteSourceAssets?.length) return
+  const httpAssets = remoteSourceAssets.filter((a) => isHttpDisplayUrl(a.displayUrl))
+  if (httpAssets.length === 0) return
+  const body = JSON.stringify({ version: 1, assets: httpAssets }, null, 2)
+  if (access.kind === 'tauri') {
+    const { join } = await import('@tauri-apps/api/path')
+    const { writeFile } = await import('@tauri-apps/plugin-fs')
+    await writeFile(
+      await join(normalizeTauriRootPath(access.rootPath), REMOTE_ASSETS_FILE),
+      new TextEncoder().encode(body)
+    )
+    return
+  }
+  const root = access.handle
+  const fh = await root.getFileHandle(REMOTE_ASSETS_FILE, { create: true })
+  const w = await fh.createWritable()
+  await w.write(body)
+  await w.close()
+}
+
+/**
+ * 在父目录下新建去重后的项目文件夹、Svg_replace、config.json，并写入内存中的替换图（仅 blob 预览可落盘）。
+ */
+export async function createRemoteAnalysisBundleTauri(
+  parentPath: string,
+  bundleDisplayName: string,
+  sections: CategorySection[],
+  itemsBySection: Record<string, ReplacementItem[]>,
+  remoteSourceAssets: AssetEntry[]
+): Promise<{ rootPath: string }> {
+  if (!isTauri()) throw new Error('仅桌面版支持导出图床分组')
+  const { join } = await import('@tauri-apps/api/path')
+  const { mkdir, writeFile, exists } = await import('@tauri-apps/plugin-fs')
+  const parent = normalizeTauriRootPath(parentPath)
+  const base = sanitizeBundleDirName(bundleDisplayName)
+  let candidate = await join(parent, base)
+  let n = 0
+  while (await exists(candidate)) {
+    n += 1
+    candidate = await join(parent, `${base}_${n}`)
+  }
+  await mkdir(candidate, { recursive: true })
+  const svgReplace = await getSvgReplacePathForWriteTauri(candidate)
+
+  const used = new Set<string>()
+  function allocateDiskName(orig: string): string {
+    let disk = orig.replace(/[/\\?*:]/g, '_').trim()
+    if (!disk) disk = `file_${Date.now()}`
+    if (!used.has(disk)) {
+      used.add(disk)
+      return disk
+    }
+    const dot = disk.lastIndexOf('.')
+    const stem = dot > 0 ? disk.slice(0, dot) : disk
+    const ext = dot > 0 ? disk.slice(dot) : ''
+    let i = 1
+    let next = `${stem}_${i}${ext}`
+    while (used.has(next)) {
+      i += 1
+      next = `${stem}_${i}${ext}`
+    }
+    used.add(next)
+    return next
+  }
+
+  const newReplacements: Record<string, string[]> = {}
+  for (const [sectionId, items] of Object.entries(itemsBySection)) {
+    if (!items?.length) continue
+    const names: string[] = []
+    for (const item of items) {
+      if (!item.previewUrl?.startsWith('blob:')) continue
+      const diskName = allocateDiskName(item.filename)
+      const buf = new Uint8Array(await (await fetch(item.previewUrl)).arrayBuffer())
+      await writeFile(await join(svgReplace, diskName), buf)
+      names.push(diskName)
+    }
+    if (names.length) newReplacements[sectionId] = names
+  }
+
+  const payload = { sections, replacements: newReplacements }
+  await writeFile(
+    await join(svgReplace, SVG_REPLACE_CONFIG_FILE),
+    new TextEncoder().encode(JSON.stringify(payload, null, 2))
+  )
+  await writeRemoteAssetsSidecar({ kind: 'tauri', rootPath: candidate }, remoteSourceAssets)
+  return { rootPath: candidate }
+}
+
+/**
  * 向已有项目根 handle 写入 analysis-folders 配置（用于选择文件夹后追加并保存）
  */
 export async function writeAnalysisFoldersToHandle(
@@ -300,6 +472,7 @@ export async function readFolderContentFromHandle(
         /** .imageset 按普通目录递归：内部每个文件各一条素材（与 Xcode 资产目录「合一」语义不同） */
         await walk(handle as FileSystemDirectoryHandle, rel)
       } else if (handle.kind === 'file') {
+        if (name === REMOTE_ASSETS_FILE) continue
         const ext =
           name.includes('.') && name.lastIndexOf('.') > 0
             ? name.slice(name.lastIndexOf('.')).toLowerCase()
@@ -330,6 +503,12 @@ export async function readFolderContentFromHandle(
         })
       }
     }
+  }
+
+  const remoteListed = await loadRemoteAssetsFromManifestHandle(folderHandle)
+  for (const a of remoteListed) {
+    usedIds.add(a.id)
+    assets.push(a)
   }
 
   await walk(folderHandle, '')
@@ -367,6 +546,7 @@ async function readFolderContentFromTauriRoot(
         await walkDir(await join(dirPath, entry.name), rel)
       } else if (entry.isFile) {
         const name = entry.name
+        if (name === REMOTE_ASSETS_FILE) continue
         const ext =
           name.includes('.') && name.lastIndexOf('.') > 0
             ? name.slice(name.lastIndexOf('.')).toLowerCase()
@@ -409,6 +589,12 @@ async function readFolderContentFromTauriRoot(
         })
       }
     }
+  }
+
+  const remoteListed = await loadRemoteAssetsFromManifestTauri(root)
+  for (const a of remoteListed) {
+    usedIds.add(a.id)
+    assets.push(a)
   }
 
   await walkDir(root, '')
@@ -588,7 +774,8 @@ export async function loadReplacementPreviewsFromAccess(
 export async function saveFolderConfigToSvgReplace(
   folderName: string,
   payload: { sections: CategorySection[]; replacements: Record<string, string | string[]> },
-  access?: LiveFolderAccess
+  access?: LiveFolderAccess,
+  remoteSourceAssets?: AssetEntry[]
 ): Promise<void> {
   if (access?.kind === 'tauri') {
     const svgReplace = await getSvgReplacePathForWriteTauri(access.rootPath)
@@ -598,6 +785,7 @@ export async function saveFolderConfigToSvgReplace(
       await join(svgReplace, SVG_REPLACE_CONFIG_FILE),
       new TextEncoder().encode(JSON.stringify(payload, null, 2))
     )
+    await writeRemoteAssetsSidecar(access, remoteSourceAssets)
     return
   }
 
@@ -618,6 +806,9 @@ export async function saveFolderConfigToSvgReplace(
   const writable = await fileHandle.createWritable()
   await writable.write(JSON.stringify(payload, null, 2))
   await writable.close()
+  if (access?.kind === 'fsa') {
+    await writeRemoteAssetsSidecar(access, remoteSourceAssets)
+  }
 }
 
 /**

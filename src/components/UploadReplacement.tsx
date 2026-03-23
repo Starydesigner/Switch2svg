@@ -24,8 +24,6 @@ function getImageDimensions(file: File): Promise<{ width: number; height: number
 interface UploadReplacementProps {
   folderName: string
   folderAccess?: LiveFolderAccess
-  sectionId: string
-  sectionLabel: string
   onUploaded: (item: ReplacementItem) => void
   disabled?: boolean
 }
@@ -33,7 +31,6 @@ interface UploadReplacementProps {
 export function UploadReplacement({
   folderName,
   folderAccess,
-  sectionLabel,
   onUploaded,
   disabled,
 }: UploadReplacementProps) {
@@ -62,7 +59,6 @@ export function UploadReplacement({
       return
     }
     setUploading(true)
-    const prefix = sectionLabel ? sectionLabel.replace(/[/\s]+/g, '_') + '_' : ''
     const base = Date.now()
     try {
       for (let i = 0; i < selectedFiles.length; i++) {
@@ -73,9 +69,9 @@ export function UploadReplacement({
         try {
           const ext = file.name.includes('.') ? file.name.slice(file.name.lastIndexOf('.')) : ''
           const nameWithoutExt = file.name.slice(0, file.name.length - ext.length)
-          const preferredName = selectedFiles.length > 1
-            ? `${prefix}${nameWithoutExt}_${base}_${i}${ext}`
-            : `${prefix}${file.name}`
+          /** 保留原始文件名；多选时用时间戳+序号避免 Svg_replace 平铺目录下重名覆盖 */
+          const preferredName =
+            selectedFiles.length > 1 ? `${nameWithoutExt}_${base}_${i}${ext}` : file.name
           const filename = await saveReplacementFile(folderName, file, preferredName, folderAccess)
           const dimensions = await getImageDimensions(file)
           const item: ReplacementItem = {

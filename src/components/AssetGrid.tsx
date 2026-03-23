@@ -107,7 +107,6 @@ interface AssetGridProps {
   /** 受控选中（与吸顶栏「移动分组」联动） */
   selectedAssetIds?: ReadonlySet<string>
   onSelectionChange?: (set: Set<string>) => void
-  onMoveSelectedToSection?: (sectionId: string) => void
   onSectionReplaceModeChange?: (sectionId: string, mode: import('../utils/categories').SectionReplaceMode) => void
 }
 
@@ -152,7 +151,6 @@ export function AssetGrid({
   onClearNewSectionIdToFocus,
   selectedAssetIds: controlledSelectedIds,
   onSelectionChange,
-  onMoveSelectedToSection,
   onSectionReplaceModeChange,
 }: AssetGridProps) {
   const [previewAssetId, setPreviewAssetId] = useState<string | null>(null)
@@ -176,10 +174,6 @@ export function AssetGrid({
   useEffect(() => {
     selectedAssetIdsRef.current = new Set(selectedAssetIds)
   }, [selectedAssetIds])
-  /** 右键菜单：有选中素材时显示 */
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
-  const contextMenuRef = useRef<HTMLDivElement>(null)
-
   const handleAssetSelect = useCallback(
     (assetId: string) => {
       const next = new Set(selectedAssetIds)
@@ -189,37 +183,6 @@ export function AssetGrid({
     },
     [selectedAssetIds, setSelectedAssetIds]
   )
-
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent) => {
-      if (selectedAssetIds.size === 0) return
-      e.preventDefault()
-      setContextMenu({ x: e.clientX, y: e.clientY })
-    },
-    [selectedAssetIds.size]
-  )
-
-  const handleCopySelectedNames = useCallback(() => {
-    const lines = Array.from(selectedAssetIds)
-      .map((id) => {
-        const a = assetsById.get(id)
-        if (!a?.name) return ''
-        return a.format ? `${a.name}.${a.format}` : a.name
-      })
-      .filter(Boolean)
-    if (lines.length) navigator.clipboard.writeText(lines.join('\n'))
-    setContextMenu(null)
-  }, [selectedAssetIds, assetsById])
-
-  useEffect(() => {
-    if (!contextMenu) return
-    const close = (e: MouseEvent) => {
-      if (contextMenuRef.current?.contains(e.target as Node)) return
-      setContextMenu(null)
-    }
-    document.addEventListener('mousedown', close, true)
-    return () => document.removeEventListener('mousedown', close, true)
-  }, [contextMenu])
 
   /** 展示顺序：未分类始终在最后 */
   const displayOrder = useMemo(
@@ -316,22 +279,6 @@ export function AssetGrid({
     return () => document.removeEventListener('keydown', handleKey)
   }, [previewAssetId])
 
-  const handleMoveToSection = useCallback(
-    (toSectionId: string) => {
-      if (onMoveSelectedToSection) {
-        onMoveSelectedToSection(toSectionId)
-        setContextMenu(null)
-        return
-      }
-      const ids = Array.from(selectedAssetIdsRef.current)
-      if (ids.length === 0) return
-      moveAssetsToSection(sections, ids, toSectionId, onSectionsChange)
-      setSelectedAssetIds(new Set())
-      setContextMenu(null)
-    },
-    [sections, onSectionsChange, onMoveSelectedToSection, setSelectedAssetIds]
-  )
-
   return (
     <div className="asset-grid-root">
       <DndContext
@@ -339,7 +286,7 @@ export function AssetGrid({
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        <div className="asset-grid" onContextMenu={handleContextMenu}>
+        <div className="asset-grid">
           {sortableSections.map((section) => (
             <SectionCard
               key={section.id}
@@ -386,31 +333,6 @@ export function AssetGrid({
             />
           ))}
         </div>
-      {contextMenu && (
-        <div
-          ref={contextMenuRef}
-          className="asset-context-menu"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-          role="menu"
-        >
-          <button type="button" className="asset-context-menu-item" role="menuitem" onClick={handleCopySelectedNames}>
-            复制选中素材名称
-          </button>
-          <div className="asset-context-menu-divider" aria-hidden />
-          <div className="asset-context-menu-label">移动分组</div>
-          {displayOrder.map((section) => (
-            <button
-              key={section.id}
-              type="button"
-              className="asset-context-menu-item"
-              role="menuitem"
-              onClick={() => handleMoveToSection(section.id)}
-            >
-              {section.semanticLabel || '未命名'}
-            </button>
-          ))}
-        </div>
-      )}
       <DragOverlay dropAnimation={null}>
         {activeAssetId ? (
           (() => {
