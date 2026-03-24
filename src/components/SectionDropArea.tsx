@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Trash2, ArrowBigRightDash, ChevronDown } from 'lucide-react'
+import { Trash2, ArrowBigRightDash, ChevronDown, FilePenLine } from 'lucide-react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import type { AssetEntry, ReplacementItem } from '../types'
@@ -8,6 +8,7 @@ import { SortableAssetCard } from './SortableAssetCard'
 import { ReplacementCard } from './ReplacementCard'
 import type { LiveFolderAccess } from '../utils/fsa'
 import { UploadReplacement } from './UploadReplacement'
+import { SectionBatchRenameModal } from './SectionBatchRenameModal'
 import './SectionDropArea.css'
 
 interface SectionDropAreaProps {
@@ -21,6 +22,11 @@ interface SectionDropAreaProps {
   replacements?: ReplacementItem[]
   onReplacementUploaded?: (sectionId: string, item: ReplacementItem) => void
   onReplacementDelete?: (sectionId: string, itemId: string) => void
+  /** 当前文件夹下所有替换图文件名（小写） */
+  replacementFilenamesLower?: Set<string>
+  canRenameReplacements?: boolean
+  onReplacementRename?: (sectionId: string, itemId: string, newFilename: string) => Promise<void>
+  onBatchReplacementRename?: (sectionId: string, drafts: Record<string, string>) => Promise<void>
   onSectionRename?: (sectionId: string, semanticLabel: string) => void
   onSectionDelete?: (sectionId: string) => void
   newSectionIdToFocus?: string | null
@@ -47,6 +53,10 @@ export function SectionDropArea({
   replacements = [],
   onReplacementUploaded,
   onReplacementDelete,
+  replacementFilenamesLower,
+  canRenameReplacements,
+  onReplacementRename,
+  onBatchReplacementRename,
   onSectionRename,
   onSectionDelete,
   newSectionIdToFocus,
@@ -58,6 +68,7 @@ export function SectionDropArea({
   onAssetPreview,
   visibleAssetIds,
 }: SectionDropAreaProps) {
+  const [batchRenameOpen, setBatchRenameOpen] = useState(false)
   const isUnclassified = (section.semanticLabel || '') === '未分类'
   const replaceMode = section.replaceMode ?? 'replace'
   const showUpload = replaceMode === 'replace' && !isUnclassified
@@ -164,6 +175,21 @@ export function SectionDropArea({
                 </select>
                 <ChevronDown size={14} strokeWidth={2} className="section-replace-mode-chevron" aria-hidden />
               </div>
+              {replaceMode === 'replace' &&
+                replacements.length > 0 &&
+                canRenameReplacements &&
+                onBatchReplacementRename &&
+                replacementFilenamesLower && (
+                  <button
+                    type="button"
+                    className="section-batch-rename-btn"
+                    onClick={() => setBatchRenameOpen(true)}
+                    title="批量按规范重命名本组替换图"
+                  >
+                    <FilePenLine size={14} strokeWidth={2} aria-hidden />
+                    批量重命名
+                  </button>
+                )}
             </div>
           )}
           <div
@@ -189,12 +215,16 @@ export function SectionDropArea({
               />
             )}
             {replacements.length > 0 &&
-              replacements.map((item) => (
+              replacements.map((item, repIndex) => (
                 <ReplacementCard
                   key={item.id}
                   sectionId={section.id}
                   item={item}
+                  sourceNameHint={assets[repIndex]?.name}
                   onDelete={() => onReplacementDelete?.(section.id, item.id)}
+                  replacementFilenamesLower={replacementFilenamesLower ?? new Set()}
+                  canRename={canRenameReplacements}
+                  onRename={onReplacementRename}
                 />
               ))}
             {replacements.length === 0 && showUpload && (
@@ -203,6 +233,18 @@ export function SectionDropArea({
           </div>
         </div>
       </div>
+      {batchRenameOpen &&
+        onBatchReplacementRename &&
+        replacementFilenamesLower && (
+          <SectionBatchRenameModal
+            open={batchRenameOpen}
+            sectionLabel={section.semanticLabel || '分组'}
+            replacements={replacements}
+            allFilenamesLower={replacementFilenamesLower}
+            onClose={() => setBatchRenameOpen(false)}
+            onApply={(drafts) => onBatchReplacementRename(section.id, drafts)}
+          />
+        )}
     </div>
   )
 }

@@ -1,7 +1,7 @@
 {
   "name": "switch2svg",
   "private": true,
-  "version": "0.0.1",
+  "version": "1.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,7 +10,8 @@
     "build-manifest": "node scripts/build-manifest.js",
     "tauri": "tauri",
     "tauri:dev": "env -u CI tauri dev",
-    "tauri:build": "env -u CI tauri build && bash scripts/pack-macos-dmg.sh"
+    "tauri:build": "env -u CI tauri build && bash scripts/pack-macos-dmg.sh",
+    "tauri:install-mac": "bash scripts/install-macos-app.sh"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",
@@ -22,6 +23,7 @@
     "@tauri-apps/plugin-fs": "^2.4.5",
     "@tauri-apps/plugin-http": "^2.5.7",
     "lucide-react": "^0.577.0",
+    "pinyin-pro": "^3.28.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

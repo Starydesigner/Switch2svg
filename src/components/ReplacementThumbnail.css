@@ -1,0 +1,38 @@
+.replacement-thumbnail {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-page, #f4f4f5);
+  overflow: hidden;
+}
+
+.replacement-thumbnail--placeholder {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.replacement-thumbnail .svg-tint-container {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.replacement-thumbnail-img,
+.replacement-thumbnail .svg-tint-container img,
+.replacement-thumbnail .svg-tint-container svg {
+  width: 100%;
+  height: 100%;
+  max-width: 36px;
+  max-height: 36px;
+  object-fit: contain;
+  display: block;
+}

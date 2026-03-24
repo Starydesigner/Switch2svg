@@ -930,6 +930,95 @@ export async function deleteReplacementFile(access: LiveFolderAccess, filename: 
 }
 
 /**
+ * 将 Svg_replace 内替换图文件改名（先写新文件再删旧文件，与 config 中文件名更新配合使用）。
+ */
+export async function renameReplacementFile(
+  access: LiveFolderAccess,
+  oldFilename: string,
+  newFilename: string
+): Promise<void> {
+  const safeOld = oldFilename.replace(/[/\\?*:]/g, '_').trim()
+  const safeNew = newFilename.replace(/[/\\?*:]/g, '_').trim()
+  if (!safeOld || !safeNew) throw new Error('文件名无效')
+  if (safeOld === safeNew) return
+
+  if (access.kind === 'tauri') {
+    const svgReplace = await findSvgReplacePathTauri(access.rootPath)
+    if (!svgReplace) throw new Error('未找到 Svg_replace 目录')
+    const { join } = await import('@tauri-apps/api/path')
+    const { readFile, writeFile, remove, exists } = await import('@tauri-apps/plugin-fs')
+    const oldPath = await join(svgReplace, safeOld)
+    const newPath = await join(svgReplace, safeNew)
+    if (!(await exists(oldPath))) throw new Error('原文件不存在')
+    if (await exists(newPath)) throw new Error('目标文件名已存在')
+    const buf = await readFile(oldPath)
+    await writeFile(newPath, buf)
+    await remove(oldPath)
+    return
+  }
+
+  if (!checkFSA()) throw new Error('当前浏览器不支持文件系统访问')
+  const folderHandle = access.handle
+  if (typeof (folderHandle as any).requestPermission === 'function') {
+    const state = await (folderHandle as any).requestPermission({ mode: 'readwrite' })
+    if (state === 'denied') throw new Error('没有写入该文件夹的权限')
+  }
+  const svgReplace = await findSvgReplaceDirectory(folderHandle)
+  if (!svgReplace) throw new Error('未找到 Svg_replace 目录')
+
+  let newExists = false
+  try {
+    await svgReplace.getFileHandle(safeNew, { create: false })
+    newExists = true
+  } catch (_) {}
+  if (newExists) throw new Error('目标文件名已存在')
+
+  const oldFh = await svgReplace.getFileHandle(safeOld, { create: false })
+  const file = await oldFh.getFile()
+  const buf = await file.arrayBuffer()
+  const newFh = await svgReplace.getFileHandle(safeNew, { create: true })
+  const writable = await newFh.createWritable({ keepExistingData: false })
+  await writable.write(buf)
+  await writable.close()
+  if (typeof (oldFh as any).remove === 'function') {
+    await (oldFh as any).remove()
+  }
+}
+
+/** 从 Svg_replace 读取单个替换图并生成 blob 预览 URL（重命名后刷新缩略图用） */
+export async function createReplacementPreviewUrl(
+  access: LiveFolderAccess,
+  filename: string
+): Promise<string | undefined> {
+  const safe = filename.replace(/[/\\?*:]/g, '_').trim()
+  if (!safe) return undefined
+  if (access.kind === 'tauri') {
+    const svgReplacePath = await findSvgReplacePathTauri(access.rootPath)
+    if (!svgReplacePath) return undefined
+    const { join } = await import('@tauri-apps/api/path')
+    const { readFile, exists } = await import('@tauri-apps/plugin-fs')
+    try {
+      const p = await join(svgReplacePath, safe)
+      if (!(await exists(p))) return undefined
+      const buf = await readFile(p)
+      const mime = mimeForReplacementFilename(safe)
+      return URL.createObjectURL(new Blob([buf], { type: mime }))
+    } catch (_) {
+      return undefined
+    }
+  }
+  try {
+    const svgReplace = await findSvgReplaceDirectory(access.handle)
+    if (!svgReplace) return undefined
+    const fh = await svgReplace.getFileHandle(safe, { create: false })
+    const file = await fh.getFile()
+    return URL.createObjectURL(file)
+  } catch (_) {
+    return undefined
+  }
+}
+
+/**
  * 从 analysis-folders.json 中移除指定文件夹名（会弹窗让用户选择项目根）
  */
 export async function removeFolderFromAnalysisConfig(folderName: string): Promise<void> {

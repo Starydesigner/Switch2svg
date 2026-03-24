@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
-import { X } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { X, Pencil } from 'lucide-react'
 import { useDraggable } from '@dnd-kit/core'
 import type { ReplacementItem } from '../types'
 import { SvgImage, isSvgFile } from './SvgImage'
+import { ReplacementRenameModal } from './ReplacementRenameModal'
 import './ReplacementCard.css'
 
 const REP_PREFIX = 'rep_'
@@ -23,10 +24,25 @@ export function parseReplacementDragId(dragId: string): { sectionId: string; ite
 interface ReplacementCardProps {
   sectionId: string
   item: ReplacementItem
+  /** 同序左侧素材名，用于智能生成替换文件名（拼音，非 AI） */
+  sourceNameHint?: string
   onDelete: () => void
+  /** 当前文件夹下所有替换图文件名（小写），用于撞名检测 */
+  replacementFilenamesLower: Set<string>
+  canRename?: boolean
+  onRename?: (sectionId: string, itemId: string, newFilename: string) => Promise<void>
 }
 
-export function ReplacementCard({ sectionId, item, onDelete }: ReplacementCardProps) {
+export function ReplacementCard({
+  sectionId,
+  item,
+  sourceNameHint,
+  onDelete,
+  replacementFilenamesLower,
+  canRename,
+  onRename,
+}: ReplacementCardProps) {
+  const [renameOpen, setRenameOpen] = useState(false)
   const [imgError, setImgError] = useState(false)
   const [detectedSvg, setDetectedSvg] = useState(false)
   useEffect(() => {
@@ -63,6 +79,12 @@ export function ReplacementCard({ sectionId, item, onDelete }: ReplacementCardPr
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
     : undefined
 
+  const reservedLower = useMemo(() => {
+    const s = new Set(replacementFilenamesLower)
+    s.delete(item.filename.toLowerCase())
+    return s
+  }, [replacementFilenamesLower, item.filename])
+
   return (
     <div
       ref={setNodeRef}
@@ -96,15 +118,42 @@ export function ReplacementCard({ sectionId, item, onDelete }: ReplacementCardPr
       {(item.width != null && item.height != null) && (
         <span className="replacement-card-size">{item.width}×{item.height}</span>
       )}
+      {canRename && onRename && (
+        <button
+          type="button"
+          className="replacement-card-rename"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation()
+            setRenameOpen(true)
+          }}
+          title="按规范重命名"
+          aria-label="重命名"
+        >
+          <Pencil size={12} strokeWidth={2} />
+        </button>
+      )}
       <button
         type="button"
         className="replacement-card-delete"
+        onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => { e.stopPropagation(); onDelete(); }}
         title="删除"
         aria-label="删除"
       >
         <X size={12} strokeWidth={2} />
       </button>
+      {renameOpen && onRename && (
+        <ReplacementRenameModal
+          open={renameOpen}
+          initialFilename={item.filename}
+          sourceDisplayName={sourceNameHint}
+          previewItem={item}
+          reservedLower={reservedLower}
+          onClose={() => setRenameOpen(false)}
+          onApply={(newFilename) => onRename(sectionId, item.id, newFilename)}
+        />
+      )}
     </div>
   )
 }

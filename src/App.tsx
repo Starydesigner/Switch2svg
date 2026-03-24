@@ -46,9 +46,16 @@ import {
   loadReplacementPreviewsFromAccess,
   saveFolderConfigToSvgReplace,
   deleteReplacementFile,
+  renameReplacementFile,
+  createReplacementPreviewUrl,
   removeFolderFromAnalysisConfig,
   type LiveFolderAccess,
 } from './utils/fsa'
+import {
+  sanitizeReplacementFilename,
+  validateReplacementFilename,
+  allocateUniqueFilename,
+} from './utils/replacementNaming'
 import { blockingConfirm } from './utils/blockingConfirm'
 import {
   extractImageUrlsFromTextDetailed,
@@ -225,7 +232,10 @@ function App() {
   }, [])
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
+    const el = document.documentElement
+    el.setAttribute('data-theme', theme)
+    /* WebView 与系统 UI 协调；避免打包版与 dev 表现不一致 */
+    el.style.colorScheme = theme === 'dark' ? 'dark' : 'light'
     try {
       localStorage.setItem(THEME_KEY, theme)
     } catch (_) {}
@@ -690,6 +700,112 @@ function App() {
     })
   }
 
+  const handleReplacementRename = useCallback(
+    async (sectionId: string, itemId: string, newFilename: string) => {
+      if (!currentFolder) return
+      const folderId = currentFolder.id
+      const folderAccess = liveFolderAccessRef.current[folderId]
+      if (!folderAccess) {
+        throw new Error('请先通过「选择文件夹」获得写入权限')
+      }
+      const reps = replacementsByFolderId[folderId] ?? {}
+      const list = reps[sectionId] ?? []
+      const target = list.find((i) => i.id === itemId)
+      if (!target) throw new Error('not found')
+      const oldName = target.filename
+      const safeNew = sanitizeReplacementFilename(newFilename)
+      if (safeNew === oldName) return
+
+      const taken = new Set<string>()
+      Object.values(reps).forEach((arr) =>
+        arr.forEach((i) => {
+          if (i.id !== itemId) taken.add(i.filename.toLowerCase())
+        })
+      )
+      const finalName = allocateUniqueFilename(safeNew, taken)
+      const v = validateReplacementFilename(finalName, { reservedLower: taken })
+      if (v.level === 'error') {
+        throw new Error(v.messages.join('；'))
+      }
+
+      await renameReplacementFile(folderAccess, oldName, finalName)
+      const previewUrl = await createReplacementPreviewUrl(folderAccess, finalName)
+      setReplacementsByFolderId((prev) => {
+        const fr = { ...(prev[folderId] ?? {}) }
+        const nextList = [...(fr[sectionId] ?? [])]
+        const idx = nextList.findIndex((i) => i.id === itemId)
+        if (idx === -1) return prev
+        const cur = nextList[idx]!
+        if (cur.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(cur.previewUrl)
+        nextList[idx] = {
+          ...cur,
+          filename: finalName,
+          previewUrl,
+          isSvg: cur.isSvg ?? /\.svg$/i.test(finalName),
+        }
+        return { ...prev, [folderId]: { ...fr, [sectionId]: nextList } }
+      })
+    },
+    [currentFolder, replacementsByFolderId]
+  )
+
+  const handleBatchReplacementRename = useCallback(
+    async (sectionId: string, drafts: Record<string, string>) => {
+      if (!currentFolder) return
+      const folderId = currentFolder.id
+      const folderAccess = liveFolderAccessRef.current[folderId]
+      if (!folderAccess) {
+        throw new Error('请先通过「选择文件夹」获得写入权限')
+      }
+      const reps = replacementsByFolderId[folderId] ?? {}
+      const items = reps[sectionId] ?? []
+      const updates = items
+        .map((r) => ({
+          item: r,
+          newFn: sanitizeReplacementFilename(drafts[r.id] ?? r.filename),
+        }))
+        .filter((u) => u.newFn !== u.item.filename)
+
+      if (updates.length === 0) return
+
+      const taken = new Set<string>()
+      Object.values(reps)
+        .flat()
+        .forEach((i) => taken.add(i.filename.toLowerCase()))
+      for (const r of items) {
+        taken.delete(r.filename.toLowerCase())
+      }
+      for (const u of updates) {
+        const v = validateReplacementFilename(u.newFn, { reservedLower: taken })
+        if (v.level === 'error') {
+          throw new Error(`${u.newFn}：${v.messages.join('；')}`)
+        }
+        taken.add(u.newFn.toLowerCase())
+      }
+
+      for (const u of updates) {
+        await renameReplacementFile(folderAccess, u.item.filename, u.newFn)
+        const previewUrl = await createReplacementPreviewUrl(folderAccess, u.newFn)
+        setReplacementsByFolderId((prev) => {
+          const fr = { ...(prev[folderId] ?? {}) }
+          const nextList = [...(fr[sectionId] ?? [])]
+          const idx = nextList.findIndex((i) => i.id === u.item.id)
+          if (idx === -1) return prev
+          const cur = nextList[idx]!
+          if (cur.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(cur.previewUrl)
+          nextList[idx] = {
+            ...cur,
+            filename: u.newFn,
+            previewUrl,
+            isSvg: cur.isSvg ?? /\.svg$/i.test(u.newFn),
+          }
+          return { ...prev, [folderId]: { ...fr, [sectionId]: nextList } }
+        })
+      }
+    },
+    [currentFolder, replacementsByFolderId]
+  )
+
   const handleOpenAddFolder = async () => {
     const existingNames = allFolders.map((f) => f.name)
     setAddFolderLoading(true)
@@ -897,7 +1013,14 @@ function App() {
   }, [currentFolder, categoriesByFolderId, displaySections, replacementsByFolderId])
 
   return (
-    <div className="app">
+    <div
+      className="app"
+      style={
+        {
+          ['--svg-tint-color' as string]: effectiveSvgTintColor,
+        } as React.CSSProperties
+      }
+    >
       <header className="header">
         <h1 className="title">APP图标治理工具</h1>
         <div className="header-tabs-row">
@@ -1296,6 +1419,8 @@ function App() {
                 replacements={replacementsByFolderId[currentFolder.id] ?? {}}
                 onReplacementUploaded={handleReplacementUploaded}
                 onReplacementDelete={handleReplacementDelete}
+                onReplacementRename={handleReplacementRename}
+                onBatchReplacementRename={handleBatchReplacementRename}
                 onReplacementMove={handleReplacementMove}
                 onAddManualGroup={handleAddManualGroup}
                 onSectionRename={handleSectionRename}

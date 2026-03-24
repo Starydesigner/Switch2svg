@@ -102,6 +102,10 @@ function SectionCard({
   onSectionsChange,
   onReplacementUploaded,
   onReplacementDelete,
+  replacementFilenamesLower,
+  canRenameReplacements,
+  onReplacementRename,
+  onBatchReplacementRename,
   onSectionRename,
   onSectionDelete,
   newSectionIdToFocus,
@@ -121,6 +125,10 @@ function SectionCard({
   onSectionsChange: (next: CategorySection[]) => void
   onReplacementUploaded?: (sectionId: string, item: ReplacementItem) => void
   onReplacementDelete?: (sectionId: string, itemId: string) => void
+  replacementFilenamesLower?: Set<string>
+  canRenameReplacements?: boolean
+  onReplacementRename?: (sectionId: string, itemId: string, newFilename: string) => Promise<void>
+  onBatchReplacementRename?: (sectionId: string, drafts: Record<string, string>) => Promise<void>
   onSectionRename?: (sectionId: string, semanticLabel: string) => void
   onSectionDelete?: (sectionId: string) => void
   newSectionIdToFocus?: string | null
@@ -143,6 +151,10 @@ function SectionCard({
       replacements={replacements}
       onReplacementUploaded={onReplacementUploaded}
       onReplacementDelete={onReplacementDelete}
+      replacementFilenamesLower={replacementFilenamesLower}
+      canRenameReplacements={canRenameReplacements}
+      onReplacementRename={onReplacementRename}
+      onBatchReplacementRename={onBatchReplacementRename}
       onSectionRename={onSectionRename}
       onSectionDelete={onSectionDelete}
       newSectionIdToFocus={newSectionIdToFocus}
@@ -165,6 +177,8 @@ interface AssetGridProps {
   replacements?: Record<string, ReplacementItem[]>
   onReplacementUploaded?: (sectionId: string, item: ReplacementItem) => void
   onReplacementDelete?: (sectionId: string, itemId: string) => void
+  onReplacementRename?: (sectionId: string, itemId: string, newFilename: string) => Promise<void>
+  onBatchReplacementRename?: (sectionId: string, drafts: Record<string, string>) => Promise<void>
   onReplacementMove?: (fromSectionId: string, itemId: string, toSectionId: string) => void
   onAddManualGroup?: () => void
   onSectionRename?: (sectionId: string, semanticLabel: string) => void
@@ -212,6 +226,8 @@ export function AssetGrid({
   replacements = {},
   onReplacementUploaded,
   onReplacementDelete,
+  onReplacementRename,
+  onBatchReplacementRename,
   onReplacementMove,
   onAddManualGroup: _onAddManualGroup,
   onSectionRename,
@@ -337,6 +353,18 @@ export function AssetGrid({
   const sortableSections = displayOrder.filter((s) => !isUnclassified(s))
   const unclassifiedSections = displayOrder.filter((s) => isUnclassified(s))
 
+  const replacementFilenamesLower = useMemo(() => {
+    const s = new Set<string>()
+    for (const list of Object.values(replacements)) {
+      for (const item of list ?? []) {
+        s.add(item.filename.toLowerCase())
+      }
+    }
+    return s
+  }, [replacements])
+
+  const canRenameReplacements = Boolean(folderAccess)
+
   useEffect(() => {
     if (!previewAssetId) return
     const handleKey = (e: KeyboardEvent) => {
@@ -369,6 +397,10 @@ export function AssetGrid({
               onSectionsChange={onSectionsChange}
               onReplacementUploaded={onReplacementUploaded}
               onReplacementDelete={onReplacementDelete}
+              replacementFilenamesLower={replacementFilenamesLower}
+              canRenameReplacements={canRenameReplacements}
+              onReplacementRename={onReplacementRename}
+              onBatchReplacementRename={onBatchReplacementRename}
               onSectionRename={onSectionRename}
               onSectionDelete={onSectionDelete}
               newSectionIdToFocus={newSectionIdToFocus}
@@ -393,6 +425,10 @@ export function AssetGrid({
               replacements={replacements[section.id]}
               onReplacementUploaded={onReplacementUploaded}
               onReplacementDelete={onReplacementDelete}
+              replacementFilenamesLower={replacementFilenamesLower}
+              canRenameReplacements={canRenameReplacements}
+              onReplacementRename={onReplacementRename}
+              onBatchReplacementRename={onBatchReplacementRename}
               onSectionRename={onSectionRename}
               onSectionDelete={onSectionDelete}
               newSectionIdToFocus={newSectionIdToFocus}

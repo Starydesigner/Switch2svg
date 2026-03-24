@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Switch2svg",
-  "version": "0.0.1",
+  "version": "1.6.0",
   "identifier": "com.switch2svg.app",
   "build": {
     "frontendDist": "../dist",
@@ -22,7 +22,7 @@
     "security": {
       "csp": {
         "default-src": "'self' asset: http://asset.localhost https://asset.localhost customprotocol:",
-        "connect-src": "ipc: http://ipc.localhost https: http: ws: wss:",
+        "connect-src": "ipc: http://ipc.localhost https: http: ws: wss: blob: data: http://asset.localhost https://asset.localhost",
         "font-src": ["https://fonts.gstatic.com"],
         "img-src": "'self' asset: http://asset.localhost https://asset.localhost blob: data: https: http:",
         "style-src": "'unsafe-inline' 'self' https://fonts.googleapis.com"

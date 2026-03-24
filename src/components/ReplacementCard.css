@@ -76,6 +76,27 @@
   margin-top: 2px;
 }
 
+.replacement-card-rename {
+  position: absolute;
+  top: 2px;
+  right: 22px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.replacement-card-rename:hover {
+  background: rgba(0, 0, 0, 0.55);
+}
+
 .replacement-card-delete {
   position: absolute;
   top: 2px;

@@ -1,0 +1,19 @@
+.naming-rule-bullets {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.naming-rule-bullets li {
+  margin-bottom: 8px;
+}
+
+.naming-rule-bullets li:last-child {
+  margin-bottom: 0;
+}
+
+.naming-rule-bullets code {
+  font-size: 11px;
+}
